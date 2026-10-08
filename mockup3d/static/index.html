@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 목업 프린터</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#fff; --text:#1d2330; --muted:#667085; --line:#e4e7ec; --accent:#2f6fed; --warn:#b54708; --err:#c01048; --ok:#067647; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111418; --panel:#1a1e24; --text:#e6e9ef; --muted:#98a2b3; --line:#2a3039; --accent:#6b9bff; --warn:#fdb022; --err:#f97066; --ok:#47cd89; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:baseline; }
+  header h1 { font-size:17px; margin:0; } header span { color:var(--muted); }
+  main { display:grid; grid-template-columns: 340px 1fr 360px; gap:12px; padding:12px; height:calc(100vh - 54px); }
+  @media (max-width: 1100px) { main { grid-template-columns:1fr; height:auto; } #viewer { height:60vh; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; overflow:auto; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:16px 0 8px; } h2:first-child { margin-top:0; }
+  label { display:block; margin:8px 0 4px; font-weight:600; }
+  input, select, textarea, button { font:inherit; color:inherit; }
+  input[type=file], select, textarea { width:100%; padding:7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+  textarea { min-height:80px; resize:vertical; }
+  button { margin-top:10px; padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; font-weight:600; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  button:disabled { opacity:.5; cursor:wait; }
+  #viewer { padding:0; position:relative; overflow:hidden; }
+  #viewer canvas { display:block; width:100%; height:100%; }
+  #empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; } td { padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .issue { padding:6px 8px; border-radius:6px; margin:4px 0; border-left:3px solid; background:var(--bg); }
+  .error { border-color:var(--err); } .warning { border-color:var(--warn); } .info { border-color:var(--accent); }
+  .ok { color:var(--ok); font-weight:600; } .bad { color:var(--err); font-weight:600; }
+  ul { padding-left:18px; margin:4px 0; } .muted { color:var(--muted); }
+  #status { margin-top:8px; color:var(--muted); min-height:1.5em; }
+  details textarea { min-height:240px; font:12px ui-monospace, monospace; }
+  .files a { display:inline-block; margin:2px 8px 2px 0; color:var(--accent); }
+</style>
+</head>
+<body>
+<header><h1>AI 목업 프린터</h1><span>사진·특허도면 → 3D 모델 → 출력</span></header>
+<main>
+  <section>
+    <h2>1. 업로드</h2>
+    <form id="upload">
+      <label>사진 / 특허도면 (PNG·JPG·PDF, 여러 장 가능)</label>
+      <input type="file" name="files" accept="image/*,application/pdf" multiple required>
+      <label>입력 종류</label>
+      <select name="source_type">
+        <option value="auto">자동 판단</option><option value="patent_drawing">특허도면</option>
+        <option value="photo">제품 사진</option><option value="sketch">스케치</option>
+      </select>
+      <label>목업 목적</label>
+      <select name="mode">
+        <option value="appearance">외형 확인용</option><option value="functional">조립·결합 검증용</option>
+      </select>
+      <label>메모 · 명세서 발췌 · 알고 있는 치수</label>
+      <textarea name="notes" placeholder="예) 전체 폭 120mm. 부호 110은 거치대 본체, 120은 받침판."></textarea>
+      <button type="submit">AI 분석 및 모델 생성</button>
+    </form>
+
+    <h2>2. 말로 수정</h2>
+    <form id="refine">
+      <textarea name="instruction" placeholder="예) 전체 폭을 100mm로, 바닥판 두께 3mm, 케이블 구멍 지름 8mm 추가" disabled></textarea>
+      <button type="submit" disabled>수정 반영</button>
+    </form>
+
+    <h2>3. 출력</h2>
+    <button id="print" class="secondary" disabled>슬라이싱 후 프린터로 전송</button>
+    <div id="status"></div>
+  </section>
+
+  <section id="viewer"><div id="empty">모델이 여기에 표시됩니다</div></section>
+
+  <section id="info"><p class="muted">분석 결과, 도면 부호, 추정 내용, 출력 검사 결과가 여기에 표시됩니다.</p></section>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let job = null;
+
+// --- 3D viewer ---
+const host = $("#viewer");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 5000);
+camera.up.set(0, 0, 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, -1.5, 2); scene.add(sun);
+let grid = null, meshObj = null;
+
+function resize() {
+  const { clientWidth: w, clientHeight: h } = host;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(host); resize();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+
+function showModel(url) {
+  new STLLoader().load(url, (geom) => {
+    if (meshObj) scene.remove(meshObj);
+    if (grid) scene.remove(grid);
+    geom.computeBoundingBox();
+    const bb = geom.boundingBox, size = new THREE.Vector3(), center = new THREE.Vector3();
+    bb.getSize(size); bb.getCenter(center);
+    meshObj = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0x5b8def, roughness: 0.55, metalness: 0.05 }));
+    scene.add(meshObj);
+    const span = Math.max(size.x, size.y, size.z);
+    grid = new THREE.GridHelper(Math.ceil(span * 2 / 10) * 10, Math.ceil(span * 2 / 10));
+    grid.rotation.x = Math.PI / 2; grid.position.set(center.x, center.y, 0); scene.add(grid);
+    controls.target.copy(center);
+    camera.position.set(center.x + span * 1.4, center.y - span * 1.8, center.z + span * 1.2);
+    $("#empty").style.display = "none";
+  });
+}
+
+// --- info panel ---
+function render(data) {
+  job = data;
+  const { spec, report, files } = data;
+  const fmt = (n) => Number(n).toFixed(1);
+  const parts = spec.parts.map((p) => `<tr><td>${esc(p.ref_numeral || "–")}</td><td>${esc(p.name)}</td><td class="muted">${p.primitives.length}개 도형</td></tr>`).join("");
+  const refs = spec.reference_numerals.map((r) => `<tr><td><b>${esc(r.numeral)}</b></td><td>${esc(r.name)}<div class="muted">${esc(r.description)}</div></td></tr>`).join("");
+  const dims = spec.dimensions.map((d) => `<tr><td>${esc(d.what)}</td><td>${fmt(d.value_mm)} mm</td><td class="muted">${{drawing_dimension:"도면 치수",text:"명세서",user:"사용자",estimated:"추정"}[d.source]}</td></tr>`).join("");
+  const list = (xs) => xs.length ? `<ul>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="muted">없음</p>`;
+  $("#info").innerHTML = `
+    <p style="margin-top:0"><b style="font-size:16px">${esc(spec.title)}</b> <span class="muted">v${data.version}</span></p>
+    <p>${report.ok ? '<span class="ok">출력 가능</span>' : '<span class="bad">수정 필요</span>'}
+      · ${report.size_mm.map(fmt).join(" × ")} mm · 약 ${report.est_filament_g} g
+      ${report.needs_supports ? "· 지지대 필요" : ""}</p>
+    <div class="files">${files.map((f) => `<a href="/api/jobs/${data.id}/files/${f}" download>${esc(f)}</a>`).join("")}</div>
+    <h2>출력 검사</h2>${report.issues.length ? report.issues.map((i) => `<div class="issue ${i.level}">${esc(i.message)}</div>`).join("") : '<p class="muted">문제 없음</p>'}
+    <h2>확인이 필요한 질문</h2>${list(spec.questions)}
+    <h2>추정한 내용</h2>${list(spec.assumptions)}
+    <h2>도면 부호</h2>${refs ? `<table>${refs}</table>` : '<p class="muted">없음</p>'}
+    <h2>부품</h2><table>${parts}</table>
+    <h2>치수 근거</h2>${dims ? `<table>${dims}</table>` : '<p class="muted">없음</p>'}
+    <details><summary>사양 JSON 직접 수정</summary>
+      <textarea id="specjson">${esc(JSON.stringify(spec, null, 2))}</textarea>
+      <button id="savespec" class="secondary">저장하고 다시 생성</button></details>`;
+  $("#savespec").onclick = () => run(async () => {
+    const body = $("#specjson").value; JSON.parse(body);
+    return api(`/api/jobs/${job.id}/spec`, { method: "PUT", headers: { "content-type": "application/json" }, body });
+  }, "모델 다시 생성 중…");
+  document.querySelectorAll("#upload button, #refine textarea, #refine button").forEach((el) => (el.disabled = false));
+  $("#print").disabled = !report.ok;
+  showModel(`/api/jobs/${data.id}/files/model.stl?v=${data.version}`);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body));
+  return body;
+}
+
+async function run(fn, msg, onDone = render) {
+  const buttons = document.querySelectorAll("button"); buttons.forEach((b) => (b.disabled = true));
+  $("#status").textContent = msg;
+  try { const r = await fn(); $("#status").textContent = "완료"; onDone(r); }
+  catch (e) { $("#status").textContent = "오류: " + e.message; if (job) render(job); else buttons.forEach((b) => (b.disabled = false)); }
+}
+
+$("#upload").onsubmit = (e) => { e.preventDefault();
+  run(() => api("/api/jobs", { method: "POST", body: new FormData(e.target) }), "AI가 도면을 분석하는 중… (최대 1~2분)"); };
+$("#refine").onsubmit = (e) => { e.preventDefault();
+  const instruction = e.target.instruction.value.trim(); if (!instruction) return;
+  run(() => api(`/api/jobs/${job.id}/refine`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }), "수정 반영 중…"); };
+$("#print").onclick = () => run(() => api(`/api/jobs/${job.id}/print`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }),
+  "슬라이싱 및 전송 중…", (r) => { render(job); $("#status").textContent = `프린터로 전송됨: ${r.uploaded}`; });
+
+const id = new URLSearchParams(location.search).get("job");
+if (id) run(() => api(`/api/jobs/${id}`), "불러오는 중…");
+</script>
+</body>
+</html>

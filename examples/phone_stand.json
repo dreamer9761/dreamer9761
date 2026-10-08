@@ -1,0 +1,42 @@
+{
+  "title": "스마트폰 거치대 (특허도면 예시)",
+  "source_type": "patent_drawing",
+  "mode": "appearance",
+  "parts": [
+    {
+      "name": "받침판",
+      "ref_numeral": "110",
+      "primitives": [
+        {"label": "바닥판", "shape": "box", "operation": "add", "size_x": 80, "size_y": 70, "size_z": 4, "x": 0, "y": 0, "z": 2},
+        {"label": "미끄럼 방지 홈", "shape": "box", "operation": "cut", "size_x": 60, "size_y": 2, "size_z": 1.2, "x": 0, "y": -20, "z": 4}
+      ]
+    },
+    {
+      "name": "등판",
+      "ref_numeral": "120",
+      "primitives": [
+        {"label": "기울어진 등판", "shape": "box", "operation": "add", "size_x": 70, "size_y": 4, "size_z": 90, "x": 0, "y": 12, "z": 46, "rot_x": -20},
+        {"label": "충전 케이블 구멍", "shape": "cylinder", "operation": "cut", "size_x": 12, "size_y": 12, "size_z": 20, "x": 0, "y": 2.5, "z": 20, "rot_x": 70}
+      ]
+    },
+    {
+      "name": "전방 턱",
+      "ref_numeral": "130",
+      "primitives": [
+        {"label": "턱", "shape": "box", "operation": "add", "size_x": 70, "size_y": 5, "size_z": 14, "x": 0, "y": -25, "z": 9}
+      ]
+    }
+  ],
+  "reference_numerals": [
+    {"numeral": "100", "name": "거치대", "description": "전체 장치"},
+    {"numeral": "110", "name": "받침판", "description": "바닥에 놓이는 판"},
+    {"numeral": "120", "name": "등판", "description": "단말기 후면을 지지"},
+    {"numeral": "130", "name": "전방 턱", "description": "단말기 하단이 미끄러지지 않게 걸림"}
+  ],
+  "dimensions": [
+    {"what": "받침판 폭", "value_mm": 80, "source": "estimated"},
+    {"what": "등판 기울기(도)", "value_mm": 20, "source": "estimated"}
+  ],
+  "assumptions": ["도면에 치수가 없어 일반적인 스마트폰 크기를 기준으로 비율을 추정했습니다."],
+  "questions": ["거치할 단말기의 두께(케이스 포함)는 몇 mm인가요?"]
+}
