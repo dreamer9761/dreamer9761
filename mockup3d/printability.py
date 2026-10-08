@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 
 import manifold3d as m3d
 import numpy as np
@@ -24,6 +25,21 @@ class PrinterProfile:
     overhang_deg: float = 45.0
     filament_density: float = 1.24  # PLA g/cm³
     effective_fill: float = 0.35  # 벽+15~20% 인필 가정 시 대략적 충전율
+
+
+PRESETS: dict[str, PrinterProfile] = {
+    "generic": PrinterProfile(),
+    # QIDI Q2: 밀폐형 CoreXY, Klipper + Moonraker(포트 7125) 기본 탑재
+    "qidi_q2": PrinterProfile(name="QIDI Q2", bed_x=270.0, bed_y=270.0, max_z=256.0),
+}
+
+
+def default_profile() -> PrinterProfile:
+    """MOCKUP3D_PRINTER_PROFILE 환경변수로 고른 프린터 프로필 (기본 generic)."""
+    key = os.environ.get("MOCKUP3D_PRINTER_PROFILE", "generic").lower()
+    if key not in PRESETS:
+        raise ValueError(f"알 수 없는 프린터 프로필 {key!r}. 사용 가능: {', '.join(PRESETS)}")
+    return PRESETS[key]
 
 
 class Issue(BaseModel):
@@ -64,7 +80,7 @@ def _min_feature(p) -> float:
 
 
 def check(spec: MockupSpec, printer: PrinterProfile | None = None) -> Report:
-    printer = printer or PrinterProfile()
+    printer = printer or default_profile()
     issues: list[Issue] = []
 
     for part in spec.parts:

@@ -165,3 +165,10 @@ def test_analyzer_builds_request_with_numeral_rules(tmp_path):
     assert "부호" in SYSTEM_PROMPT and "치수가 아닙니다" in SYSTEM_PROMPT
     with pytest.raises(ValueError):
         Analyzer(client=client).analyze([tmp_path / "x.dwg"])
+
+
+def test_qidi_q2_profile_allows_larger_parts(monkeypatch):
+    big = spec_of(box("plate", 250, 250, 5))
+    assert "too_large" in {i.code for i in printability.check(big).issues}
+    monkeypatch.setenv("MOCKUP3D_PRINTER_PROFILE", "qidi_q2")
+    assert printability.check(big).ok

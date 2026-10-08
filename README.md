@@ -49,6 +49,17 @@ mockup3d build examples/phone_stand.json -o out/     # AI 없이 사양 → STL
 
 ### 프린터 연동 (선택)
 
+**권장 기종: QIDI Q2** — Klipper + Moonraker가 기본 탑재되어 있어 별도 개조 없이 바로 연결됩니다.
+
+```bash
+export MOCKUP3D_PRINTER=moonraker
+export MOCKUP3D_PRINTER_URL=http://<프린터 IP>:7125   # 프린터 화면의 네트워크 정보에서 IP 확인
+export MOCKUP3D_PRINTER_PROFILE=qidi_q2              # 출력 검사에 270×270×256mm 적용
+curl $MOCKUP3D_PRINTER_URL/server/info                # 연결 확인
+```
+
+슬라이싱 설정은 반드시 Q2용 프로필을 사용하세요. 일반 프로필로 만든 G-code는 Q2의 시작 매크로·온도 설정과 맞지 않을 수 있습니다.
+
 | 환경변수 | 예시 |
 |---|---|
 | `MOCKUP3D_PRINTER` | `octoprint` 또는 `moonraker` |
@@ -90,7 +101,8 @@ mockup3d build examples/phone_stand.json -o out/     # AI 없이 사양 → STL
 - 얇은 벽 검사는 도형 단위 근사입니다. cut으로 생긴 얇은 벽은 슬라이서 미리보기로 한 번 더 확인하세요.
 - AI 사양의 정확도는 도면 품질과 치수 정보에 크게 좌우됩니다. 대표 샘플 5~10건으로
   형상 재현도 / 사람 수정 시간 / 실제 출력 성공률을 측정해 범위를 정하는 것을 권장합니다.
-- Bambu Lab 등 클라우드 전용 프린터는 별도 연동이 필요합니다.
+- Bambu Lab(LAN·개발자 모드 필요), Elegoo Centauri(SDCP 프로토콜) 등은 별도 연동 모듈이 필요합니다.
+- QIDI Studio / OrcaSlicer CLI 슬라이싱은 실제 Q2 프로필로 검증한 뒤 추가할 예정입니다.
 
 ## 테스트
 
