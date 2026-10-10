@@ -66,6 +66,13 @@ AI(Claude Code), 음성인식(Whisper), 캐릭터까지 한 번에 설치하고 
 - "용용아, 크몽 확인해 줘" / "용용아, 지금 크몽 손님 누구야?" 하고 물어봐도 돼요.
 - 주문자별 기록(연관 계정, 이전 주문, 진행 상황)은 `yongyong/data/customers.md` 에 쌓여서, 다음에 같은 손님이 오면 예전 기록까지 함께 알려 줍니다.
 
+## 크몽 현황 · 아침 브리핑
+
+- "용용아, 크몽 현황 알려 줘" → 사파리에 로그인된 크몽의 주문·수익·메시지 페이지를 새 탭으로 열어 **읽기만** 하고 닫은 뒤,
+  신규 결제 / 발송 안 한 주문 / 최근 문의 / 이번 주·이번 달 매출을 말로 요약하고 화면에 보고서를 띄웁니다.
+  처음에는 크몽 메뉴에서 페이지 주소를 찾느라 몇 분 걸릴 수 있고, 찾은 주소는 `data/memo.md` 에 기억합니다.
+- 매일 아침 9시에는 부르지 않아도 날씨 → 뉴스 → 크몽 현황을 브리핑합니다 (`YONGYONG_BRIEFING_TIME`).
+
 ## 설정 바꾸기 (`yongyong/.env` 에 추가)
 
 ```bash
@@ -73,6 +80,7 @@ export YONGYONG_MIN_RMS=0.006        # 잘 못 알아들으면 낮추고, 잡음
 export YONGYONG_WORKDIR=~/projects   # 개발 작업 폴더
 export YONGYONG_VOICE=Yuna           # 목소리
 export YONGYONG_FACE=0               # 캐릭터 창 끄기
+export YONGYONG_BRIEFING_TIME=09:00  # 아침 브리핑 시각 (비우면 끔)
 export YONGYONG_KMONG_POLL=30        # 크몽 확인 주기(초), 0 이면 자동 감시 끔
 ```
 

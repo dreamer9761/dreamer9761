@@ -112,11 +112,12 @@
   function close() {
     clearTimeout(closeTimer);
     $('weather').hidden = true;
-    if ($('news').hidden) document.documentElement.classList.remove('has-side');
+    if ($('news').hidden && $('report').hidden) document.documentElement.classList.remove('has-side');
   }
 
   async function show(place) {
     $('news').hidden = true;
+    $('report').hidden = true;
     $('weather').hidden = false;
     document.documentElement.classList.add('has-side');
     try { if (window.innerWidth < 900) window.resizeTo(1120, Math.max(window.outerHeight, 820)); } catch (e) {}

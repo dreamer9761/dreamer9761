@@ -75,8 +75,13 @@ MIN_SPEECH_SEC = 0.4
 # Whisper 가 "용용아"를 다르게 받아 적는 경우까지 포함
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
-LOGIN_RE = re.compile(r"로그인|계정\s?연결")
-PANEL_TAG = re.compile(r"\[\[(날씨|뉴스):\s*([^\]]*?)\s*\]\]")
+LOGIN_RE = re.compile(r"계정\s?연결|(클로드|클라우드|claude)\s*로그인", re.I)  # "크몽 로그인" 은 해당 없음
+PANEL_TAG = re.compile(r"\[\[(날씨|뉴스|크몽)(?::\s*([^\]]*?))?\s*\]\]")
+KMONG_STATUS_RE = re.compile(r"매출|결제|발송|현황|주문|정산|브리핑")
+REPORTS = {"크몽": ("크몽 현황", DATA / "kmong_report.md")}
+BRIEFING_TIME = os.environ.get("YONGYONG_BRIEFING_TIME", "09:00")  # 매일 아침 브리핑 (비우면 끔)
+BRIEFING_PROMPT = ("아침 브리핑을 해 줘. 순서: 기본 지역 날씨, 주요 뉴스, 크몽 현황(신규 결제·발송 안 한 주문·최근 문의·이번 주/이번 달 매출). "
+                   "전체 1분 안에 들을 수 있게. 화면에는 크몽 현황 보고서를 띄워.")
 
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
@@ -189,7 +194,9 @@ def deaf():
 
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
-    persona = PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
+    persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1]))
+               .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
 
@@ -281,6 +288,44 @@ def login_token(body):
     return {"ok": True}
 
 
+def report_route(body):
+    title, path = REPORTS.get(str(body.get("name", "")), (None, None))
+    if not path or not path.exists():
+        return {"ok": False, "error": "아직 보고서가 없어요."}
+    updated = time.strftime("%m월 %d일 %H:%M 작성", time.localtime(path.stat().st_mtime))
+    return {"ok": True, "title": f"🧾 {title}", "updated": updated, "text": path.read_text(encoding="utf-8")}
+
+
+def show_panels(answer):
+    """대답 속 [[날씨:강릉]] [[뉴스:경제]] [[크몽]] 표시대로 화면 패널을 띄우고, 소리로 읽을 글만 돌려준다."""
+    tags = PANEL_TAG.findall(answer)
+    if tags:
+        kind, arg = tags[-1]
+        if kind == "날씨" and arg:
+            FACE.panel("weather", place=arg)
+        elif kind == "뉴스":
+            FACE.panel("news", topic=arg)
+        elif kind == "크몽":
+            FACE.panel("report", name="크몽")
+    return PANEL_TAG.sub("", answer).strip()
+
+
+def briefing_loop():
+    """매일 BRIEFING_TIME 에 아침 브리핑."""
+    last_day = None
+    while True:
+        time.sleep(20)
+        now = time.strftime("%H:%M")
+        today = time.strftime("%Y-%m-%d")
+        if now != BRIEFING_TIME or last_day == today:
+            continue
+        last_day = today
+        log("아침 브리핑 시작")
+        answer = Brain().ask(BRIEFING_PROMPT)
+        with BUSY, deaf():
+            speak("좋은 아침이에요, 대표님. " + show_panels(answer))
+
+
 def news_route(body):
     label, items = news.fetch_news(str(body.get("topic", "")), limit=15)
     return {"ok": True, "label": label, "items": items}
@@ -347,6 +392,7 @@ def main():
         FACE.routes["/login/start"] = login_start
         FACE.routes["/login/token"] = login_token
         FACE.routes["/news"] = news_route
+        FACE.routes["/report"] = report_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄
@@ -366,6 +412,9 @@ def main():
         log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, daemon=True).start()
+    if re.fullmatch(r"\d{2}:\d{2}", BRIEFING_TIME):
+        threading.Thread(target=briefing_loop, daemon=True).start()
+        log(f"아침 브리핑: 매일 {BRIEFING_TIME}")
         log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
 
     def on_audio(indata, frames, t, status):
@@ -410,7 +459,7 @@ def main():
                     continue
 
                 speak("네, 잠시만요.", then="thinking")
-                if "크몽" in command:
+                if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
                     try:
                         page = kmong.snapshot()
                         if page:
@@ -418,13 +467,7 @@ def main():
                     except kmong.SafariError as e:
                         speak(str(e))
                         continue
-                answer = brain.ask(command)
-                for kind, arg in PANEL_TAG.findall(answer)[:1]:
-                    if kind == "날씨" and arg:
-                        FACE.panel("weather", place=arg)
-                    elif kind == "뉴스":
-                        FACE.panel("news", topic=arg)
-                speak(PANEL_TAG.sub("", answer).strip(), then="listening")
+                speak(show_panels(brain.ask(command)), then="listening")
                 awake_until = time.time() + FOLLOW_UP_SEC
 
 
