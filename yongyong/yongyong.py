@@ -214,7 +214,7 @@ def deaf():
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
     persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
