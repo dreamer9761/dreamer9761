@@ -12,18 +12,30 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import kmong
 import mlx_whisper
 import numpy as np
 import sounddevice as sd
 
 HERE = Path(__file__).resolve().parent
 PERSONA = (HERE / "persona.md").read_text(encoding="utf-8")
+DATA = HERE / "data"  # 고객 메모 등 (git 에 올라가지 않음)
+CUSTOMERS = DATA / "customers.md"
+
+KMONG_INSTRUCTIONS = f"""아래는 대표님 사파리에 떠 있는 크몽 화면의 글자야.
+1. 지금 상담 중인(또는 새로 문의한) 주문자 닉네임을 찾아.
+2. {CUSTOMERS} 파일에서 그 주문자의 예전 기록(연관 계정, 이전 주문, 진행 상황)을 찾아봐.
+3. 화면에서 새로 알게 된 사실(주문자, 요청 내용, 주문·진행 상태, 금액, 마감일, 같은 사람으로 보이는 다른 계정)을
+   그 파일의 해당 주문자 항목에 짧게 추가하거나 고쳐. 파일이 없으면 만들어.
+4. 대표님께 말로 보고해: 누가, 무엇을 원하는지, 예전 거래나 연관 계정, 지금 상황, 대표님이 할 일. 2~4문장.
+화면은 읽기만 하고 크몽에 메시지를 보내거나 클릭하지 마."""
 
 WHISPER_MODEL = os.environ.get("YONGYONG_WHISPER", "mlx-community/whisper-large-v3-turbo")
 VOICE = os.environ.get("YONGYONG_VOICE", "Yuna")
 MIC_NAME = os.environ.get("YONGYONG_MIC", "Studio Display")
 WORKDIR = Path(os.environ.get("YONGYONG_WORKDIR", Path.home() / "projects")).expanduser()
 MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.006"))  # 낮출수록 작은 소리에도 반응
+KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "30"))  # 0 이면 자동 감시 끔
 FOLLOW_UP_SEC = 8  # 대답 후 이 시간 안에는 "용용아" 없이 바로 말해도 됨
 
 SAMPLE_RATE = 16000  # Whisper 입력
@@ -124,7 +136,9 @@ def deaf():
 class Brain:
     """Claude Code(`claude -p`)를 두뇌로 사용. Claude Pro 로그인 그대로 사용한다."""
 
-    def __init__(self):
+    def __init__(self, workdir=WORKDIR, remember=True):
+        self.workdir = workdir
+        self.remember = remember
         self.session_id = None
 
     def ask(self, text):
@@ -133,11 +147,12 @@ class Brain:
             "--output-format", "json",
             "--append-system-prompt", PERSONA,
             "--permission-mode", "acceptEdits",
+            "--add-dir", str(DATA),
         ]
-        if self.session_id:
+        if self.remember and self.session_id:
             cmd += ["--resume", self.session_id]
         try:
-            p = subprocess.run(cmd, cwd=WORKDIR, capture_output=True, text=True, timeout=1800)
+            p = subprocess.run(cmd, cwd=self.workdir, capture_output=True, text=True, timeout=1800)
             data = json.loads(p.stdout)
         except subprocess.TimeoutExpired:
             return "작업이 너무 오래 걸려서 멈췄어요."
@@ -148,8 +163,60 @@ class Brain:
         return data.get("result") or "처리했어요."
 
 
+def kmong_prompt(page, new_lines=None):
+    prompt = KMONG_INSTRUCTIONS
+    if new_lines is not None:
+        prompt += ("\n\n이번에 화면에서 새로 생긴 줄은 아래와 같아. 주문자가 보낸 새 메시지나 새 주문이 아니면"
+                   " (광고, 내가 보낸 메시지, 화면 이동 등) 파일만 정리하고 정확히 '없음' 이라고만 대답해.\n"
+                   + new_lines)
+    return prompt + "\n\n=== 크몽 화면 ===\n" + page
+
+
+def kmong_watch(busy):
+    """크몽 탭을 주기적으로 읽다가 새 문의가 보이면 먼저 알려 준다."""
+    brain = Brain(workdir=DATA, remember=False)
+    last = None
+    while True:
+        time.sleep(KMONG_POLL_SEC)
+        try:
+            page = kmong.snapshot()
+        except Exception as e:  # 사파리가 닫혀 있거나 권한이 없을 때는 조용히 다시 시도
+            log(f"(크몽 읽기 실패) {e}")
+            continue
+        if not page:
+            continue
+        if last is None or kmong.fingerprint(page) == kmong.fingerprint(last):
+            last = page
+            continue
+        new_lines = kmong.changes(last, page)
+        last = page
+        if not new_lines:
+            continue
+        log("크몽 화면 변화 감지 → 확인 중")
+        report = brain.ask(kmong_prompt(page, new_lines)).strip()
+        if report and report.strip(" .'\"") != "없음":
+            with busy, deaf():
+                speak("크몽 알림이에요. " + report)
+
+
+def kmong_once():
+    """음성 없이 지금 크몽 화면을 한 번 요약 (테스트용: ./run.sh --kmong)."""
+    DATA.mkdir(exist_ok=True)
+    try:
+        page = kmong.snapshot()
+    except kmong.SafariError as e:
+        print(e)
+        return
+    if not page:
+        print("사파리에 크몽(kmong.com) 탭이 보이지 않아요.")
+        return
+    print(f"크몽 화면 {len(page)}자 읽음. 요약 중...")
+    speak(Brain(workdir=DATA, remember=False).ask(kmong_prompt(page)))
+
+
 def main():
     WORKDIR.mkdir(parents=True, exist_ok=True)
+    DATA.mkdir(exist_ok=True)
     dev, info = pick_mic()
     rate = int(info["default_samplerate"])
     log(f"마이크: {info['name']} ({rate}Hz) / 음성인식: {WHISPER_MODEL} / 작업 폴더: {WORKDIR}")
@@ -158,6 +225,10 @@ def main():
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32))
 
     brain = Brain()
+    busy = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
+    if KMONG_POLL_SEC > 0:
+        threading.Thread(target=kmong_watch, args=(busy,), daemon=True).start()
+        log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
 
     def on_audio(indata, frames, t, status):
         if not muted.is_set():
@@ -169,7 +240,7 @@ def main():
             speak("용용이 준비됐어요. 용용아 하고 불러 주세요.")
         awake_until = 0.0
         for audio in utterances(rate):
-            with deaf():
+            with busy, deaf():
                 text = transcribe(audio)
                 if not text:
                     continue
@@ -194,13 +265,21 @@ def main():
                     continue
 
                 subprocess.Popen(["say", "-v", VOICE, "네, 잠시만요."])
+                if "크몽" in command:
+                    try:
+                        page = kmong.snapshot()
+                        if page:
+                            command = f"{command}\n\n{kmong_prompt(page)}"
+                    except kmong.SafariError as e:
+                        speak(str(e))
+                        continue
                 speak(brain.ask(command))
                 awake_until = time.time() + FOLLOW_UP_SEC
 
 
 if __name__ == "__main__":
     try:
-        main()
+        kmong_once() if "--kmong" in sys.argv else main()
     except KeyboardInterrupt:
         print("\n용용이를 종료합니다.")
         sys.exit(0)
