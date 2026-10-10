@@ -34,6 +34,47 @@ _JS_PLAY_FIRST = r"""(() => {
                           clicked: btn ? (btn.className + ' ' + (btn.getAttribute('onclick') || '')).slice(0, 80) : '' });
 })()"""
 
+# 플레이어 팝업 창에서 재생 버튼 누르기 (팝업만 뜨고 멈춰 있는 경우)
+_JS_IN_TAB = r"""
+on run argv
+  tell application "Safari"
+    repeat with w in (every window)
+      repeat with t in (every tab of w)
+        if URL of t contains (item 1 of argv) then return do JavaScript (item 2 of argv) in t
+      end repeat
+    end repeat
+  end tell
+  return "nowindow"
+end run
+"""
+_JS_PLAYER_PLAY = r"""(() => {
+  const media = Array.from(document.querySelectorAll('audio, video'));
+  if (media.some(m => !m.paused)) return 'playing';
+  const vis = (e) => e.offsetParent !== null;
+  const btn = Array.from(document.querySelectorAll('button, a, [role=button]')).filter(vis).find(e => {
+    const k = (e.className + ' ' + (e.id || '')).toString();
+    const t = (e.title || e.getAttribute('aria-label') || e.innerText || '').trim();
+    return (/play/i.test(k) && !/pause|list|mv|video|next|prev|playlist/i.test(k)) || /^(재생|play)$/i.test(t);
+  });
+  if (btn) btn.click();
+  media.forEach(m => { if (m.paused) m.play().catch(() => {}); });
+  return btn ? 'clicked' : (media.length ? 'media' : 'none');
+})()"""
+_JS_PLAYER_STATE = r"""Array.from(document.querySelectorAll('audio, video')).some(m => !m.paused) ? 'playing' : 'paused'"""
+
+
+def _press_play_in_player():
+    """플레이어 창의 재생 버튼을 눌러 보고, 실제로 소리가 나는지 확인."""
+    if _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_STATE) == "nowindow":
+        return "nowindow"
+    for _ in range(3):
+        if _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_STATE) == "playing":
+            return "playing"
+        _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_PLAY)
+        time.sleep(2)
+    return _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_STATE)
+
+
 # 재생 버튼을 눌렀더니 유튜브가 열린 경우 그 탭만 닫기 위해, 누르기 전·후 유튜브 탭을 비교
 _YOUTUBE_TABS = r"""
 set out to ""
@@ -82,6 +123,8 @@ def play(query):
             _osa(_CLOSE_TAB, w, i)
         if opened:
             r = dict(r, ok=False, why="youtube")
+        elif r.get("ok"):
+            r["player"] = _press_play_in_player()
     finally:
         try:
             _osa(_CLOSE_WINDOW, win)
@@ -94,6 +137,9 @@ def play(query):
         return "'%s'을(를) 누르니 지니 대신 유튜브가 열려서 닫았어요. 지니 검색 화면을 캡처해서 보내 주세요. (누른 버튼: %s)" % (song, r.get("clicked"))
     if not r.get("ok"):
         return "'%s'은(는) 찾았는데 재생 버튼을 누르지 못했어요." % song
+    if r.get("player") == "paused":
+        return ("지니 플레이어 창에 %s을(를) 올렸는데 사파리가 자동 재생을 막았어요. 사파리 설정 → 웹 사이트 → 자동 재생에서 "
+                "genie.co.kr 을 '모든 미디어 자동 재생 허용'으로 바꿔 주세요. 지금은 플레이어 창의 재생 버튼을 한 번 눌러 주세요." % song)
     msg = "지니에서 %s 재생을 시작했어요." % song
     if r.get("loggedOut"):
         msg += " (지니에 로그인이 안 돼 있어서 미리듣기만 나올 수 있어요. 사파리에서 지니에 로그인해 주세요.)"
