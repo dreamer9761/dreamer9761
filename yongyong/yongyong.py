@@ -48,6 +48,18 @@ WHISPER_MODEL = os.environ.get("YONGYONG_WHISPER", "mlx-community/whisper-large-
 VOICE = os.environ.get("YONGYONG_VOICE", "Yuna")
 MIC_NAME = os.environ.get("YONGYONG_MIC", "Studio Display")
 WORKDIR = Path(os.environ.get("YONGYONG_WORKDIR", Path.home() / "projects")).expanduser()
+
+# 음성으로는 "허용" 버튼을 누를 수 없으니, 용용이가 묻지 않고 써도 되는 도구를 미리 정해 둔다.
+# 지우기·푸시·관리자 권한처럼 되돌리기 어려운 명령은 넣지 않았다. 필요하면 .env 에서 YONGYONG_ALLOWED_TOOLS 로 바꾸기.
+ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
+    "WebSearch", "WebFetch", "Read", "Edit", "Write", "Glob", "Grep", "TodoWrite",
+    *(f"Bash({c}:*)" for c in [
+        "ls", "cat", "head", "tail", "wc", "pwd", "date", "cal", "mkdir", "cp", "mv", "touch", "find", "grep",
+        "git status", "git diff", "git log", "git add", "git commit", "git checkout", "git branch", "git clone",
+        "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "open", "curl",
+    ]),
+]))
+DISALLOWED_TOOLS = "Bash(rm:*),Bash(sudo:*),Bash(git push:*),Bash(git reset:*)"
 MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.01"))  # 낮출수록 작은 소리에도 반응
 KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "30"))  # 0 이면 자동 감시 끔
 FOLLOW_UP_SEC = 8  # 대답 후 이 시간 안에는 "용용아" 없이 바로 말해도 됨
@@ -187,6 +199,8 @@ class Brain:
             "--append-system-prompt", PERSONA,
             "--permission-mode", "acceptEdits",
             "--add-dir", str(DATA),
+            "--allowedTools", ALLOWED_TOOLS,
+            "--disallowedTools", DISALLOWED_TOOLS,
         ]
         if self.remember and self.session_id:
             cmd += ["--resume", self.session_id]
@@ -226,7 +240,7 @@ def login_start(_body):
     subprocess.run(["osascript",
                     "-e", 'tell application "Terminal" to activate',
                     "-e", f'tell application "Terminal" to do script "\\"{claude}\\" setup-token"'],
-                   check=False)
+                   check=False, capture_output=True)
     return {"ok": True}
 
 
