@@ -58,7 +58,7 @@ AI(Claude Code), 음성인식(Whisper), 캐릭터까지 한 번에 설치하고 
 ## 설정 바꾸기 (`yongyong/.env` 에 추가)
 
 ```bash
-export YONGYONG_MIN_RMS=0.004        # 잘 못 알아들으면 낮추고, 잡음에 자꾸 반응하면 높이기
+export YONGYONG_MIN_RMS=0.006        # 잘 못 알아들으면 낮추고, 잡음에 자꾸 반응하면 높이기
 export YONGYONG_WORKDIR=~/projects   # 개발 작업 폴더
 export YONGYONG_VOICE=Yuna           # 목소리
 export YONGYONG_FACE=0               # 캐릭터 창 끄기

@@ -2,6 +2,7 @@
 """용용이: "용용아" 하고 부르면 듣고, Claude Code 로 생각해서, 말로 대답하는 음성 비서."""
 import collections
 import json
+import math
 import os
 import queue
 import re
@@ -18,6 +19,7 @@ import kmong
 import mlx_whisper
 import numpy as np
 import sounddevice as sd
+from scipy.signal import resample_poly
 
 HERE = Path(__file__).resolve().parent
 PERSONA = (HERE / "persona.md").read_text(encoding="utf-8")
@@ -45,7 +47,7 @@ WHISPER_MODEL = os.environ.get("YONGYONG_WHISPER", "mlx-community/whisper-large-
 VOICE = os.environ.get("YONGYONG_VOICE", "Yuna")
 MIC_NAME = os.environ.get("YONGYONG_MIC", "Studio Display")
 WORKDIR = Path(os.environ.get("YONGYONG_WORKDIR", Path.home() / "projects")).expanduser()
-MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.006"))  # 낮출수록 작은 소리에도 반응
+MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.01"))  # 낮출수록 작은 소리에도 반응
 KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "30"))  # 0 이면 자동 감시 끔
 FOLLOW_UP_SEC = 8  # 대답 후 이 시간 안에는 "용용아" 없이 바로 말해도 됨
 
@@ -53,7 +55,7 @@ SAMPLE_RATE = 16000  # Whisper 입력
 BLOCK_SEC = 0.03
 END_SILENCE_SEC = 0.8
 MAX_UTTERANCE_SEC = 30
-MIN_SPEECH_SEC = 0.3
+MIN_SPEECH_SEC = 0.4
 
 # Whisper 가 "용용아"를 다르게 받아 적는 경우까지 포함
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
@@ -81,8 +83,8 @@ def pick_mic():
 def to_16k(x, rate):
     if rate == SAMPLE_RATE:
         return x
-    n = int(len(x) * SAMPLE_RATE / rate)
-    return np.interp(np.linspace(0, len(x), n, endpoint=False), np.arange(len(x)), x).astype(np.float32)
+    g = math.gcd(SAMPLE_RATE, rate)  # 저역 통과 필터를 포함한 리샘플링 (단순 보간보다 인식률이 좋음)
+    return resample_poly(x, SAMPLE_RATE // g, rate // g).astype(np.float32)
 
 
 def utterances(rate):
@@ -118,8 +120,18 @@ def transcribe(audio):
         language="ko",
         initial_prompt="용용아,",
         condition_on_previous_text=False,
+        temperature=0.0,  # 기본값은 실패 시 무작위성을 올려 다시 시도해서 엉뚱한 외국어가 나옴
     )
-    return result["text"].strip()
+    # 잡음을 억지로 받아 적은 구간은 버림
+    text = "".join(
+        seg["text"] for seg in result.get("segments", [])
+        if seg.get("no_speech_prob", 0) < 0.6 and seg.get("avg_logprob", 0) > -1.0
+    ).strip()
+    letters = [c for c in text if c.isalpha()]
+    hangul = sum("가" <= c <= "힣" for c in letters)
+    if letters and hangul / len(letters) < 0.5:
+        return ""
+    return text
 
 
 def for_speech(text):
