@@ -11,6 +11,7 @@
 <script src="report.js"></script>
 <script src="chat.js"></script>
 <script src="dash.js"></script>
+<script src="draft.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -276,6 +277,19 @@
     </div>
     <ol class="news-list" id="news-list"></ol>
   </section>
+  <section class="wx side-panel" id="draft" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place">💬 크몽 답변 초안</div><div class="wx-updated" id="draft-updated"></div></div>
+      <button class="wx-close" id="draft-close" aria-label="닫기">✕</button>
+    </div>
+    <div class="report-body" id="draft-info"></div>
+    <textarea id="draft-text" class="draft-text" spellcheck="false"></textarea>
+    <div class="draft-actions">
+      <button id="draft-insert">크몽 입력창에 넣기</button>
+      <button id="draft-copy" class="ghost">복사</button>
+    </div>
+    <div class="draft-msg" id="draft-msg"></div>
+  </section>
   <section class="wx side-panel" id="report" hidden>
     <div class="wx-head">
       <div><div class="wx-place" id="report-title"></div><div class="wx-updated" id="report-updated"></div></div>
@@ -386,6 +400,7 @@
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
+      else if (msg.panel === 'draft') window.YongDraft.show();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }

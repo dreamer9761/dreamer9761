@@ -96,8 +96,9 @@ MIN_SPEECH_SEC = 0.4
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
 LOGIN_RE = re.compile(r"계정\s?연결|(클로드|클라우드|claude)\s*로그인", re.I)  # "크몽 로그인" 은 해당 없음
-PANEL_TAG = re.compile(r"\[\[(날씨|뉴스|크몽)(?::\s*([^\]]*?))?\s*\]\]")
-KMONG_STATUS_RE = re.compile(r"매출|결제|발송|현황|주문|정산|브리핑")
+PANEL_TAG = re.compile(r"\[\[(날씨|뉴스|크몽|답변)(?::\s*([^\]]*?))?\s*\]\]")
+DRAFT = DATA / "kmong_draft.md"  # 크몽 답변 초안 (용용이가 쓰고, 화면에서 고쳐서 크몽 입력창에 넣음)
+KMONG_STATUS_RE = re.compile(r"매출|결제|발송|현황|주문|정산|브리핑|상담|답변|답장|초안")  # 이런 요청엔 열린 화면 요약을 붙이지 않음
 REPORTS = {"크몽": ("크몽 현황", DATA / "kmong_report.md")}
 BRIEFING_TIME = os.environ.get("YONGYONG_BRIEFING_TIME", "09:00")  # 매일 아침 브리핑 (비우면 끔)
 BRIEFING_PROMPT = ("아침 브리핑을 해 줘. 순서: 기본 지역 날씨, 주요 뉴스, 크몽 현황(신규 결제·발송 안 한 주문·최근 문의·이번 주/이번 달 매출). "
@@ -290,6 +291,7 @@ def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
     persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
                .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py"))
+               .replace("{DRAFT}", str(DRAFT)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
@@ -409,6 +411,8 @@ def show_panels(answer):
             FACE.panel("news", topic=arg)
         elif kind == "크몽":
             FACE.panel("report", name="크몽")
+        elif kind == "답변":
+            FACE.panel("draft")
     return PANEL_TAG.sub("", answer).strip()
 
 
@@ -740,6 +744,27 @@ def window_route(body):
     return {"ok": True}
 
 
+def draft_route(_body):
+    if not DRAFT.exists():
+        return {"ok": False, "error": "아직 답변 초안이 없어요."}
+    text = DRAFT.read_text(encoding="utf-8")
+    info, _, reply = text.partition("## 답변 초안")
+    return {"ok": True, "info": info.strip(), "reply": reply.strip(),
+            "updated": time.strftime("%H:%M 작성", time.localtime(DRAFT.stat().st_mtime))}
+
+
+def draft_insert_route(body):
+    """화면에서 고친 초안을 크몽 대화 입력창에 넣는다. 보내기 버튼은 대표님이 크몽에서 직접 누른다."""
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return {"ok": False, "error": "넣을 내용이 없어요."}
+    try:
+        ok = kmong.insert_draft(text)
+    except kmong.SafariError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": ok, "error": "" if ok else "크몽 대화 입력창을 찾지 못했어요. 상담할 대화를 열어 주세요."}
+
+
 def news_route(body):
     label, items = news.fetch_news(str(body.get("topic", "")), limit=15)
     return {"ok": True, "label": label, "items": items}
@@ -831,6 +856,8 @@ def main():
         FACE.routes["/ask"] = ask_route
         FACE.routes["/dashboard"] = dashboard_route
         FACE.routes["/window"] = window_route
+        FACE.routes["/draft"] = draft_route
+        FACE.routes["/draft/insert"] = draft_insert_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄

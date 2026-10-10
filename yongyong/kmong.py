@@ -270,12 +270,118 @@ def read_list_pages(url, max_pages=10):
         _osa(_CLOSE_WINDOW, win)
 
 
+# ── 상담 도우미: 지금 열린 크몽 대화창 읽기, 자주 쓰는 문구 읽기, 입력창에 초안 넣기(보내지는 않음) ──
+_IN_CHAT_TAB = r"""
+on run argv
+  tell application "Safari"
+    set best to missing value
+    repeat with w in (every window)
+      repeat with t in (every tab of w)
+        set u to URL of t
+        if u contains "kmong.com" then
+          if best is missing value then set best to t
+          if u contains "inbox" or u contains "message" or u contains "chat" then
+            set best to t
+            exit repeat
+          end if
+        end if
+      end repeat
+    end repeat
+    if best is missing value then return "nokmong"
+    return do JavaScript (item 1 of argv) in best
+  end tell
+end run
+"""
+# 대화 내용이 들어 있는(스크롤되는) 가장 큰 영역을 맨 위로 올려 예전 메시지를 불러온다
+_JS_CHAT_SCROLL = r"""(() => {
+  const boxes = Array.from(document.querySelectorAll('div, section, ul')).filter(e => {
+    const s = getComputedStyle(e);
+    return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 50 && e.clientWidth > 300;
+  });
+  const box = boxes.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0];
+  if (!box) return '0';
+  box.setAttribute('data-yongyong-chat', '1');
+  box.scrollTop = 0;
+  return String(box.scrollHeight);
+})()"""
+_JS_CHAT_TEXT = r"""(() => {
+  const box = document.querySelector('[data-yongyong-chat]');
+  return box ? box.innerText : document.body.innerText;
+})()"""
+_JS_TEMPLATES_OPEN = r"""(() => {
+  const el = Array.from(document.querySelectorAll('button, a, [role=button], span')).find(e =>
+    /자주\s*쓰는\s*문구|자주쓰는문구|빠른\s*답변|템플릿/.test((e.innerText || e.title || e.getAttribute('aria-label') || '').trim()));
+  if (!el) return 'notfound';
+  window.__yyBefore = document.body.innerText;
+  (el.closest('button, a, [role=button]') || el).click();
+  return 'opened';
+})()"""
+_JS_TEMPLATES_READ = r"""(() => {
+  const before = new Set((window.__yyBefore || '').split('\n'));
+  const added = document.body.innerText.split('\n').filter(l => l.trim() && !before.has(l));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+  return added.join('\n');
+})()"""
+_JS_INSERT = r"""((text) => {
+  const vis = (e) => e.offsetParent !== null && !e.disabled && !e.readOnly;
+  const box = Array.from(document.querySelectorAll('textarea, [contenteditable=true]')).filter(vis)
+    .sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+  if (!box) return 'noinput';
+  box.focus();
+  if (box.tagName === 'TEXTAREA') {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box, text);
+  } else {
+    box.innerText = text;
+  }
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  box.dispatchEvent(new Event('change', { bubbles: true }));
+  return 'inserted';
+})(%s)"""
+
+
+def _chat_js(js):
+    out = _osa(_IN_CHAT_TAB, js)
+    if out == "nokmong":
+        raise SafariError("사파리에 크몽 탭이 없어요. 크몽에서 상담할 대화를 열어 주세요.")
+    return out
+
+
+def read_chat():
+    """지금 사파리에 열린 크몽 대화를 처음 메시지까지 거슬러 올라가 전부 읽는다."""
+    import time
+    last = None
+    for _ in range(20):
+        height = _chat_js(_JS_CHAT_SCROLL)
+        if height == last:
+            break
+        last = height
+        time.sleep(1.2)
+    return _chat_js(_JS_CHAT_TEXT)[-MAX_CHARS:]
+
+
+def read_templates():
+    """대화창의 '자주 쓰는 문구' 목록을 열어 읽고 닫는다 (보내지 않음)."""
+    import time
+    if _chat_js(_JS_TEMPLATES_OPEN) == "notfound":
+        return ""
+    time.sleep(1.5)
+    return _chat_js(_JS_TEMPLATES_READ)
+
+
+def insert_draft(text):
+    """크몽 대화 입력창에 초안을 넣기만 한다. 보내기는 대표님이 직접."""
+    import json
+    return _chat_js(_JS_INSERT % json.dumps(text)) == "inserted"
+
+
 def _cli(argv):
     usage = ("사용법:\n  python3 kmong.py links [주소]   크몽 페이지의 링크(메뉴) 목록\n"
              "  python3 kmong.py read 주소      크몽 페이지 글자 읽기\n"
              "  python3 kmong.py current        지금 사파리에 열린 크몽 탭 읽기\n"
              "  python3 kmong.py pages 주소 [쪽수]  목록을 다음 페이지로 넘기며 읽기 (기본 10쪽, 월별 매출 계산용)\n"
-             "  python3 kmong.py login 카카오   크몽 자동 로그인 + 전문가 모드 (카카오/네이버/구글/애플)")
+             "  python3 kmong.py login 카카오   크몽 자동 로그인 + 전문가 모드 (카카오/네이버/구글/애플)\n"
+             "  python3 kmong.py chat           지금 열린 크몽 대화를 처음부터 전부 읽기\n"
+             "  python3 kmong.py templates      대화창의 '자주 쓰는 문구' 목록 읽기")
     if not argv:
         print(usage)
         return 1
@@ -287,6 +393,10 @@ def _cli(argv):
         print("[링크 목록] " + final + "\n" + body)
     elif cmd == "pages" and rest:
         print(read_list_pages(rest[0], int(rest[1]) if len(rest) > 1 else 10))
+    elif cmd == "chat":
+        print("[대화 전체]\n" + read_chat())
+    elif cmd == "templates":
+        print(read_templates() or "자주 쓰는 문구 버튼을 찾지 못했어요.")
     elif cmd == "login" and rest:
         print(login(rest[0]))
     elif cmd == "read" and rest:

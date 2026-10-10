@@ -140,3 +140,13 @@ html.dash-on .dash {
 .dash-muted { color: var(--muted); }
 .dash-hint { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 13px; opacity: .6; }
 @media (max-width: 760px) { html.dash-on .dash { grid-template-columns: 1fr; overflow: auto; } }
+
+/* 크몽 답변 초안 */
+.draft-text { width: 100%; min-height: 200px; margin-top: 12px; padding: 12px; border-radius: 12px; resize: vertical;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.25); color: var(--text);
+  font: 15px/1.6 -apple-system, "Apple SD Gothic Neo", sans-serif; }
+.draft-actions { display: flex; gap: 8px; margin-top: 10px; }
+.draft-actions button { border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 700; cursor: pointer;
+  background: var(--scale); color: #0d1226; }
+.draft-actions button.ghost { background: rgba(255,255,255,.1); color: var(--text); }
+.draft-msg { margin-top: 8px; font-size: 14px; color: var(--glow); min-height: 20px; }
