@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """지니뮤직 재생: 사파리에 로그인된 지니(genie.co.kr)에서 노래를 검색해 첫 곡을 튼다.
   python3 genie.py play 아이유 좋은날     검색해서 첫 곡 재생
+  python3 genie.py top 아이유 10          검색 결과 위에서부터 10곡을 이어서 재생
   python3 genie.py stop                  지니 플레이어 끄기
   python3 genie.py volume 30             맥 소리 크기(0~100)
 지니는 공개 API 가 없어서 대표님 사파리의 지니 웹 플레이어를 대신 눌러 주는 방식이다 (로그인·이용권 필요)."""
@@ -33,6 +34,26 @@ _JS_PLAY_FIRST = r"""(() => {
   return JSON.stringify({ ok: !!btn, why: btn ? '' : 'nobutton', title, artist, songid: row.getAttribute('songid'), loggedOut,
                           clicked: btn ? (btn.className + ' ' + (btn.getAttribute('onclick') || '')).slice(0, 80) : '' });
 })()"""
+
+# 검색 결과 위에서부터 n곡을 체크하고 '선택 듣기'를 눌러 한꺼번에 재생목록에 넣는다
+_JS_PLAY_TOP = r"""((n) => {
+  const rows = Array.from(document.querySelectorAll('tr[songid], li[songid]'))
+    .filter(r => !/youtube|mv|video/i.test(r.className + ' ' + (r.getAttribute('onclick') || ''))).slice(0, n);
+  const name = (r) => {
+    const t = r.querySelector('.title, a.title'), a = r.querySelector('.artist, a.artist');
+    return [a && a.innerText.trim(), t && t.innerText.trim()].filter(Boolean).join(' - ').replace(/\s+/g, ' ');
+  };
+  const titles = rows.map(name);
+  if (!rows.length) return JSON.stringify({ ok: false, why: 'notfound', titles });
+  let checked = 0;
+  rows.forEach(r => { const c = r.querySelector('input[type=checkbox]'); if (c) { if (!c.checked) c.click(); checked++; } });
+  const inRow = (e) => rows.some(r => r.contains(e));
+  const btn = checked && Array.from(document.querySelectorAll('a,button')).find(e => !inRow(e) && e.offsetParent !== null &&
+    /^(선택\s*(곡\s*)?듣기|선택된\s*곡\s*듣기|선택곡\s*재생|선택\s*재생|듣기)$/.test((e.innerText || e.title || '').trim()));
+  if (btn) btn.click();
+  return JSON.stringify({ ok: !!btn, why: btn ? '' : 'noselect', titles, checked });
+})(%d)"""
+
 
 # 플레이어 팝업 창에서 재생 버튼 누르기 (팝업만 뜨고 멈춰 있는 경우)
 _JS_IN_TAB = r"""
@@ -148,6 +169,30 @@ def play(query):
     return msg
 
 
+def play_top(query, n=10):
+    """검색 결과 위에서부터 n곡을 한 번에 재생목록에 넣고 재생. (성공 여부, 곡 목록, 안내 문장)"""
+    win = _osa(_NEW_WINDOW, SEARCH + urllib.parse.quote(query))
+    try:
+        _wait(win, 20, lambda ready, logged_in, host: True)
+        time.sleep(1.5)
+        r = json.loads(_osa(_RUN_JS, win, _JS_PLAY_TOP % n))
+        if r.get("ok"):
+            time.sleep(3)
+            r["player"] = _press_play_in_player()
+    finally:
+        try:
+            _osa(_CLOSE_WINDOW, win)
+        except SafariError:
+            pass
+    titles = r.get("titles", [])
+    if not r.get("ok"):
+        return False, titles, ""
+    if r.get("player") == "paused":
+        return False, titles, ("곡은 재생목록에 넣었는데 사파리가 자동 재생을 막았어요. 사파리 설정 → 웹 사이트 → 자동 재생에서 "
+                               "genie.co.kr 을 '모든 미디어 자동 재생 허용'으로 바꿔 주세요.")
+    return True, titles, "지니에서 %d곡을 이어서 틀어요. 첫 곡은 %s." % (len(titles), titles[0] if titles else query)
+
+
 def player_state():
     """지니 플레이어 상태: playing | paused | nowindow"""
     return _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_STATE)
@@ -171,6 +216,11 @@ def main(argv):
     cmd, rest = argv[0], " ".join(argv[1:]).strip()
     if cmd == "play" and rest:
         print(play(rest))
+    elif cmd == "top" and rest:
+        words = rest.split()
+        n = int(words.pop()) if len(words) > 1 and words[-1].isdigit() else 10
+        ok, titles, msg = play_top(" ".join(words), n)
+        print(msg or "선택 듣기를 하지 못했어요. 찾은 곡: " + ", ".join(titles))
     elif cmd == "stop":
         print(stop())
     elif cmd == "volume" and rest.isdigit():

@@ -128,8 +128,25 @@ def set_music(on):
     publish_mode()
 
 
+MUSIC_QUEUE = []  # 이어서 틀 곡 ("가수 곡제목"). 지니 '선택 듣기'가 안 될 때 한 곡씩 이어 틀기용
+
+
+def play_next():
+    """대기열의 다음 곡을 튼다. 틀었으면 True."""
+    while MUSIC_QUEUE:
+        song = MUSIC_QUEUE.pop(0)
+        try:
+            result = genie.play(song)
+        except Exception as e:
+            result = f"지니를 열지 못했어요: {e}"
+        log(f"🎵 다음 곡 ({len(MUSIC_QUEUE)}곡 남음): {result.split(' 플레이어 창이 안 뜨')[0]}")
+        if "재생을 시작" in result:
+            return True
+    return False
+
+
 def music_watch():
-    """음악이 끝났는지(플레이어가 닫히거나 멈춤) 확인해서 입력 방식을 되돌린다."""
+    """곡이 끝나면(플레이어가 멈추거나 닫힘) 대기열의 다음 곡을 틀고, 다 끝나면 입력 방식을 되돌린다."""
     quiet = 0
     while True:
         time.sleep(8)
@@ -141,8 +158,10 @@ def music_watch():
         except Exception:  # 사파리를 못 읽으면 다음에 다시
             continue
         quiet = 0 if playing else quiet + 1
-        if quiet >= 2:  # 16초 넘게 조용하면 끝난 것으로 봄
-            set_music(False)
+        if quiet >= 2:  # 16초 넘게 조용하면 곡이 끝난 것으로 봄
+            quiet = 0
+            if not play_next():
+                set_music(False)
 
 
 WAKE_SONGS = [  # 기상 음악 (지니에서 검색할 걸그룹 노래, 매일 다른 곡)
@@ -405,17 +424,18 @@ def wake_up():
         last = json.loads(state_file.read_text()).get("song")
     except (OSError, ValueError):
         last = None
-    song = random.choice([x for x in WAKE_SONGS if x != last])
+    songs = random.sample([x for x in WAKE_SONGS if x != last], 10)  # 10곡 연속, 어제 첫 곡은 빼고
+    song = songs[0]
     state_file.write_text(json.dumps({"song": song, "date": time.strftime("%Y-%m-%d")}, ensure_ascii=False))
     log(f"⏰ 기상 음악: {song}")
     with BUSY, deaf():
         genie.volume(35)
         speak("좋은 아침이에요, 대표님! 일어날 시간이에요.")
+    MUSIC_QUEUE[:] = songs
     try:
-        result = genie.play(song)
+        result = "재생을 시작" if play_next() else "지니에서 재생하지 못했어요."
     except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
         result = f"지니를 열지 못했어요: {e}"
-    log(f"🎵 {result}")
     if "재생을 시작" not in result:
         with BUSY, deaf():
             speak("기상 음악을 틀지 못했어요. " + result.split(" 플레이어 창이 안 뜨")[0])
@@ -502,6 +522,7 @@ def ask_route(body):
 MUSIC_STOP_RE = re.compile(r"(음악|노래|지니|플레이어)\S*\s*(좀\s*)?(꺼|멈춰|정지|그만|중지)")
 MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡|지니).{0,10}(재생|켜|플레이|듣고\s*싶|들을래|찾아)"
                            r"|(재생|플레이).{0,6}(노래|음악|곡)|듣고\s*싶(어|다)|들을래")
+MUSIC_NEXT_RE = re.compile(r"다음\s*곡|넘겨|스킵|skip", re.I)
 NOT_MUSIC_RE = re.compile(r"뉴스|날씨|브리핑|크몽|매출|요약|문의|보고|일정|메일")  # "뉴스 들려줘" 는 음악이 아님
 VOLUME_RE = re.compile(r"(소리|볼륨|음량)\D{0,6}(\d{1,3})\s*(으로|로|%|퍼센트)")
 
@@ -513,27 +534,52 @@ def handle_music(command):
         speak(genie.volume(m.group(2)))
         return True
     if MUSIC_STOP_RE.search(command):
+        MUSIC_QUEUE.clear()
         speak(genie.stop())
         set_music(False)
+        return True
+    if MUSIC.is_set() and MUSIC_NEXT_RE.search(command):
+        if MUSIC_QUEUE:
+            speak("다음 곡 틀게요.") if play_next() else speak("다음 곡을 틀지 못했어요.")
+        else:
+            speak("지니 플레이어 창에서 다음 곡 버튼을 눌러 주세요. 지금은 지니 재생목록으로 이어서 나오고 있어요.")
         return True
     if not MUSIC_PLAY_RE.search(command) or NOT_MUSIC_RE.search(command):
         return False
     speak("지니에서 찾아볼게요.", then="thinking", chat=False)
-    query = Brain(workdir=DATA, remember=False).ask(
-        "다음 요청을 지니뮤직에서 검색할 검색어 한 줄로만 바꿔 줘. 다른 말은 쓰지 마. "
-        "곡이나 가수가 있으면 '가수 곡제목', 막연하면 어울리는 실제 곡 하나를 '가수 곡제목'으로.\n요청: " + command,
-        tools=False).strip().strip("\"'「」").splitlines()[0][:60]
-    log(f"🎵 지니 검색: {query}")
+    n = int(m.group(1)) if (m := re.search(r"(\d{1,2})\s*곡", command)) else 10
+    n = max(1, min(n, 30))
+    plan = Brain(workdir=DATA, remember=False).ask(
+        f"다음 음악 요청을 지니뮤직에서 {n}곡 이어서 틀 계획으로 바꿔 줘. JSON 한 줄만 쓰고 다른 말은 쓰지 마.\n"
+        '- 가수나 장르 하나만 말했으면(예: "아이유 노래", "걸그룹 노래"): {"search": "검색어"}  (검색 결과 위에서부터 틀어)\n'
+        f'- 특정 곡을 말했거나 분위기만 말했으면: {{"songs": ["가수 곡제목", ...]}}  ({n}곡, 말한 곡이 있으면 첫 곡으로, 나머지는 어울리는 실제 곡)\n'
+        "요청: " + command, tools=False)
     try:
-        result = genie.play(query)
+        plan = json.loads(plan[plan.index("{"): plan.rindex("}") + 1])
+    except ValueError:
+        plan = {"songs": [plan.strip().splitlines()[0][:60]]}
+    MUSIC_QUEUE.clear()
+    try:
+        if plan.get("search"):
+            log(f"🎵 지니 검색 후 {n}곡 연속: {plan['search']}")
+            ok, titles, msg = genie.play_top(plan["search"], n)
+            if not ok and not msg:  # '선택 듣기'를 못 하면 찾은 곡들을 한 곡씩 이어 틀기
+                MUSIC_QUEUE.extend(titles or [plan["search"]])
+                ok = play_next()
+                msg = f"지니에서 {len(titles) or 1}곡을 한 곡씩 이어서 틀어요." if ok else "지니에서 재생하지 못했어요."
+        else:
+            songs = [x for x in plan.get("songs", []) if isinstance(x, str)][:n] or [command]
+            log(f"🎵 지니 {len(songs)}곡 연속: {', '.join(songs)}")
+            MUSIC_QUEUE.extend(songs)
+            ok = play_next()
+            msg = f"지니에서 {len(songs)}곡을 이어서 틀어요. 첫 곡은 {songs[0]}." if ok else "지니에서 재생하지 못했어요."
     except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
-        result = f"지니를 열지 못했어요: {e}"
-    log(f"🎵 {result}")
-    result = result.split(" 플레이어 창이 안 뜨")[0]  # 사파리 설정 안내는 터미널에만
-    if "재생을 시작" in result:
+        ok, msg = False, f"지니를 열지 못했어요: {e}"
+    log(f"🎵 {msg}")
+    if ok:
         set_music(True)
-        result += " 음악이 나오는 동안은 화면 아래 칸에 글자로 말씀해 주세요."
-    speak(result)
+        msg += " 음악이 나오는 동안은 화면 아래 칸에 글자로 말씀해 주세요. 다음 곡은 '다음 곡'이라고 입력하세요."
+    speak(msg)
     return True
 
 
