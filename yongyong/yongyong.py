@@ -95,6 +95,8 @@ BRIEFING_PROMPT = ("아침 브리핑을 해 줘. 순서: 기본 지역 날씨, �
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
 FACE = face.Face()
+SETTINGS = DATA / "settings.json"
+MODE = {"input": "voice", "speak": True}  # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도
 BUSY = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
 ENV_FILE = HERE / ".env"
 audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
@@ -174,9 +176,17 @@ def for_speech(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def speak(text, then="idle"):
-    """말하면서 캐릭터 입을 소리 크기에 맞춰 움직인다. 끝나면 캐릭터를 `then` 상태로."""
+def speak(text, then="idle", chat=True):
+    """말하면서 캐릭터 입을 소리 크기에 맞춰 움직인다. 끝나면 캐릭터를 `then` 상태로.
+    대답 소리를 꺼 두었으면(텍스트 대화용) 화면 대화창에만 보여 준다."""
     print(f"\n🐉 용용이: {text}\n", flush=True)
+    if then == "listening" and MODE["input"] == "text":
+        then = "idle"
+    if chat:
+        FACE.chat("yongyong", text)
+    if not MODE["speak"]:
+        FACE.show(then if then != "listening" else "idle")
+        return
     with tempfile.TemporaryDirectory() as tmp:
         wav = Path(tmp) / "say.wav"
         subprocess.run(["say", "-v", VOICE, "-r", "200", "-o", str(wav), "--file-format=WAVE",
@@ -204,7 +214,7 @@ def deaf():
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
     persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1]))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
@@ -245,6 +255,9 @@ class Brain:
             FACE.show("login")
             return "Claude 로그인이 필요해요. 화면의 로그인 버튼을 눌러 주세요."
         return result
+
+
+BRAIN = Brain()  # 대화를 이어 가는 두뇌 (음성·텍스트 공용)
 
 
 def needs_login(output):
@@ -335,6 +348,70 @@ def briefing_loop():
             speak("좋은 아침이에요, 대표님. " + show_panels(answer))
 
 
+def load_mode():
+    try:
+        MODE.update({k: v for k, v in json.loads(SETTINGS.read_text()).items() if k in MODE})
+    except (OSError, ValueError):
+        pass
+
+
+def mode_route(body):
+    """화면에서 [음성 / 텍스트] 와 [대답 소리] 를 바꿀 때. 빈 요청이면 지금 설정만 돌려준다."""
+    if body.get("input") in ("voice", "text"):
+        MODE["input"] = body["input"]
+        log("입력 방식: " + ("음성" if MODE["input"] == "voice" else "텍스트"))
+    if "speak" in body:
+        MODE["speak"] = bool(body["speak"])
+    SETTINGS.write_text(json.dumps(MODE))
+    return {"ok": True, **MODE}
+
+
+def ask_route(body):
+    """화면 대화창에 글자로 입력한 질문."""
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return {"ok": False, "error": "내용을 입력해 주세요."}
+
+    def run():
+        with BUSY, deaf():
+            log(f"⌨️ {text}")
+            handle_command(text)
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True}
+
+
+MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
+
+
+def handle_command(command):
+    """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출)."""
+    if LOGIN_RE.search(command):
+        speak("화면에 Claude 계정 연결 창을 띄웠어요. 로그인 시작 버튼을 눌러 주세요.", then="login")
+        return
+    if RESET_RE.search(command) and len(command) < 15:
+        BRAIN.session_id = None
+        speak("새 대화를 시작할게요.", then="listening")
+        return
+    m = MODE_RE.search(command)
+    if m and len(command) < 20:
+        mode_route({"input": "voice" if m.group(1) in ("음성", "목소리") else "text"})
+        FACE.mode(MODE)
+        speak("음성 모드로 바꿨어요. 용용아 하고 불러 주세요." if MODE["input"] == "voice"
+              else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
+        return
+
+    speak("네, 잠시만요.", then="thinking", chat=False)
+    if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
+        try:
+            page = kmong.snapshot()
+            if page:
+                command = f"{command}\n\n{kmong_prompt(page)}"
+        except kmong.SafariError as e:
+            speak(str(e))
+            return
+    speak(show_panels(BRAIN.ask(command)), then="listening")
+
+
 def news_route(body):
     label, items = news.fetch_news(str(body.get("topic", "")), limit=15)
     return {"ok": True, "label": label, "items": items}
@@ -394,6 +471,7 @@ def kmong_once():
 def main():
     WORKDIR.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(exist_ok=True)
+    load_mode()
     dev, info = pick_mic()
     rate = int(info["default_samplerate"])
     log(f"마이크: {info['name']} ({rate}Hz) / 음성인식: {WHISPER_MODEL} / 작업 폴더: {WORKDIR}")
@@ -402,6 +480,8 @@ def main():
         FACE.routes["/login/token"] = login_token
         FACE.routes["/news"] = news_route
         FACE.routes["/report"] = report_route
+        FACE.routes["/mode"] = mode_route
+        FACE.routes["/ask"] = ask_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄
@@ -412,8 +492,6 @@ def main():
     log("음성인식 모델 준비 중... (처음 한 번은 다운로드 때문에 몇 분 걸려요)")
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32))
 
-    brain = Brain()
-
     log("Claude 로그인 확인 중...")
     logged_in = check_login()
     log("Claude 로그인 " + ("확인됨" if logged_in else "필요"))
@@ -421,20 +499,23 @@ def main():
         log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, daemon=True).start()
+        log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
     if re.fullmatch(r"\d{2}:\d{2}", BRIEFING_TIME):
         threading.Thread(target=briefing_loop, daemon=True).start()
         log(f"아침 브리핑: 매일 {BRIEFING_TIME}")
-        log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
 
     def on_audio(indata, frames, t, status):
-        if not muted.is_set():
+        if not muted.is_set() and MODE["input"] == "voice":
             audio_q.put(indata[:, 0].copy())
 
     with sd.InputStream(device=dev, channels=1, samplerate=rate, dtype="float32",
                         blocksize=int(rate * BLOCK_SEC), callback=on_audio):
         with deaf():
             time.sleep(2 if SHOW_FACE else 0)  # 캐릭터 창이 뜰 시간
-            if logged_in:
+            FACE.mode(MODE)
+            if logged_in and MODE["input"] == "text":
+                speak("용용이 준비됐어요. 화면 아래 칸에 입력해 주세요.")
+            elif logged_in:
                 speak("용용이 준비됐어요. 용용아 하고 불러 주세요.")
             else:
                 speak("Claude 계정 연결이 필요해요. 화면의 로그인 버튼을 눌러 주세요.", then="login")
@@ -455,28 +536,10 @@ def main():
 
                 log(f"🎤 {text}")
                 if not command:
-                    speak("네.", then="listening")
-                    awake_until = time.time() + FOLLOW_UP_SEC
-                    continue
-                if LOGIN_RE.search(command):
-                    speak("화면에 Claude 계정 연결 창을 띄웠어요. 로그인 시작 버튼을 눌러 주세요.", then="login")
-                    continue
-                if RESET_RE.search(command) and len(command) < 15:
-                    brain.session_id = None
-                    speak("새 대화를 시작할게요.", then="listening")
-                    awake_until = time.time() + FOLLOW_UP_SEC
-                    continue
-
-                speak("네, 잠시만요.", then="thinking")
-                if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
-                    try:
-                        page = kmong.snapshot()
-                        if page:
-                            command = f"{command}\n\n{kmong_prompt(page)}"
-                    except kmong.SafariError as e:
-                        speak(str(e))
-                        continue
-                speak(show_panels(brain.ask(command)), then="listening")
+                    speak("네.", then="listening", chat=False)
+                else:
+                    FACE.chat("me", command)
+                    handle_command(command)
                 awake_until = time.time() + FOLLOW_UP_SEC
 
 

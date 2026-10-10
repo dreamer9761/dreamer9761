@@ -9,6 +9,7 @@
 <script src="weather.js"></script>
 <script src="news.js"></script>
 <script src="report.js"></script>
+<script src="chat.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -213,6 +214,19 @@
 <div class="status" id="status"></div>
 <div class="subtitle" id="subtitle"></div>
 
+<div class="modebar">
+  <button id="mode-voice">🎤 음성</button>
+  <button id="mode-text">⌨️ 텍스트</button>
+  <button id="mode-speak">🔊 소리 켬</button>
+</div>
+<div class="chat">
+  <div class="chat-log" id="chat-log"></div>
+  <div class="chat-row">
+    <textarea id="chat-input" placeholder="용용이에게 입력 (Enter: 보내기)"></textarea>
+    <button id="chat-send">보내기</button>
+  </div>
+</div>
+
 <button class="account" id="account">Claude 계정 연결</button>
 
 <div class="login" id="login">
@@ -362,6 +376,8 @@
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
+      else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
+      else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
       else setState(msg);
     };

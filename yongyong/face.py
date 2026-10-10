@@ -39,6 +39,17 @@ class Face:
             for q in self._clients:
                 q.put(msg)
 
+    def chat(self, who, text):
+        """화면 대화창에 한 줄 추가 (who: me | yongyong)."""
+        self.panel("chat", who=who, text=text)
+
+    def mode(self, mode):
+        msg = json.dumps({"mode": mode}, ensure_ascii=False)
+        with self._lock:
+            self._mode = msg
+            for q in self._clients:
+                q.put(msg)
+
     def start(self, open_window=True):
         face = self
 
@@ -90,6 +101,8 @@ class Face:
                 with face._lock:
                     face._clients.append(q)
                     q.put(face._last)
+                    if getattr(face, "_mode", None):
+                        q.put(face._mode)
                 try:
                     while True:
                         try:

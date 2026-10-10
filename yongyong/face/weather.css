@@ -80,3 +80,30 @@ html.has-side .subtitle { max-width: 280px; }
 .report-body ul { margin: 4px 0; padding-left: 20px; }
 .report-body li { margin: 3px 0; }
 .report-body b { color: #fff; }
+
+/* 대화 방식 선택 + 텍스트 대화창 */
+.modebar { display: flex; gap: 6px; margin-top: 12px; }
+.modebar button {
+  border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: var(--muted);
+  border-radius: 999px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+.modebar button.on { background: var(--scale); border-color: var(--scale); color: #0d1226; font-weight: 700; }
+#mode-speak { margin-left: 6px; }
+#mode-speak.on { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.3); color: var(--text); font-weight: 400; }
+.chat { display: none; width: min(92vw, 400px); margin-top: 10px; }
+html.text-mode .chat { display: block; }
+html.text-mode .subtitle { display: none; }
+.chat-log {
+  max-height: 34vh; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px; border-radius: 14px; background: rgba(255,255,255,.05);
+}
+.chat-log .msg { max-width: 85%; padding: 7px 11px; border-radius: 14px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.chat-log .me { align-self: flex-end; background: var(--scale); color: #0d1226; border-bottom-right-radius: 4px; }
+.chat-log .yongyong { align-self: flex-start; background: rgba(255,255,255,.1); border-bottom-left-radius: 4px; }
+.chat-row { display: flex; gap: 6px; margin-top: 8px; }
+.chat-row textarea {
+  flex: 1; resize: none; height: 44px; padding: 10px 12px; border-radius: 12px; font: 14px -apple-system, "Apple SD Gothic Neo", sans-serif;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.25); color: var(--text);
+}
+.chat-row button { border: 0; border-radius: 12px; padding: 0 16px; background: var(--scale); color: #0d1226; font-weight: 700; cursor: pointer; }
+html.text-mode .stage { width: min(60vw, 230px); }
