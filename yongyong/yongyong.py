@@ -19,6 +19,7 @@ from pathlib import Path
 import face
 import genie
 import kmong
+import youtube
 import news
 import mlx_whisper
 import numpy as np
@@ -107,7 +108,8 @@ SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 FACE = face.Face()
 SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
-MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": ""}
+MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
+        "music": "genie"}  # music: 기본 음악 서비스 genie | youtube
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -154,7 +156,7 @@ def music_watch():
             quiet = 0
             continue
         try:
-            playing = genie.player_state() == "playing"
+            playing = "playing" in (genie.player_state(), youtube.state())
         except Exception:  # 사파리를 못 읽으면 다음에 다시
             continue
         quiet = 0 if playing else quiet + 1
@@ -431,9 +433,13 @@ def wake_up():
     with BUSY, deaf():
         genie.volume(35)
         speak("좋은 아침이에요, 대표님! 일어날 시간이에요.")
-    MUSIC_QUEUE[:] = songs
     try:
-        result = "재생을 시작" if play_next() else "지니에서 재생하지 못했어요."
+        if MODE.get("music") == "youtube":
+            ok, _, msg = youtube.play("걸그룹 히트곡", 10, views=True)
+            result = "재생을 시작" if ok else msg
+        else:
+            MUSIC_QUEUE[:] = songs
+            result = "재생을 시작" if play_next() else "지니에서 재생하지 못했어요."
     except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
         result = f"지니를 열지 못했어요: {e}"
     if "재생을 시작" not in result:
@@ -522,6 +528,7 @@ def ask_route(body):
 MUSIC_STOP_RE = re.compile(r"(음악|노래|지니|플레이어)\S*\s*(좀\s*)?(꺼|멈춰|정지|그만|중지)")
 MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡|지니).{0,10}(재생|켜|플레이|듣고\s*싶|들을래|찾아)"
                            r"|(재생|플레이).{0,6}(노래|음악|곡)|듣고\s*싶(어|다)|들을래")
+MUSIC_SOURCE_RE = re.compile(r"(기본|앞으로|이제부터).{0,12}(유튜브|지니)|(유튜브|지니).{0,6}(기본으로|로\s*(바꿔|할게|해\s*줘))")
 MUSIC_NEXT_RE = re.compile(r"다음\s*곡|넘겨|스킵|skip", re.I)
 NOT_MUSIC_RE = re.compile(r"뉴스|날씨|브리핑|크몽|매출|요약|문의|보고|일정|메일")  # "뉴스 들려줘" 는 음악이 아님
 VOLUME_RE = re.compile(r"(소리|볼륨|음량)\D{0,6}(\d{1,3})\s*(으로|로|%|퍼센트)")
@@ -533,9 +540,16 @@ def handle_music(command):
     if m:
         speak(genie.volume(m.group(2)))
         return True
+    m = MUSIC_SOURCE_RE.search(command)
+    if m:
+        MODE["music"] = "youtube" if "유튜브" in m.group(0) else "genie"
+        mode_route({})
+        speak("앞으로 음악은 " + ("유튜브" if MODE["music"] == "youtube" else "지니") + "로 틀게요.")
+        return True
     if MUSIC_STOP_RE.search(command):
         MUSIC_QUEUE.clear()
-        speak(genie.stop())
+        results = [genie.stop(), youtube.stop()]
+        speak(next((r for r in results if "껐어요" in r), results[0]))
         set_music(False)
         return True
     if MUSIC.is_set() and MUSIC_NEXT_RE.search(command):
@@ -546,9 +560,12 @@ def handle_music(command):
         return True
     if not MUSIC_PLAY_RE.search(command) or NOT_MUSIC_RE.search(command):
         return False
-    speak("지니에서 찾아볼게요.", then="thinking", chat=False)
-    n = int(m.group(1)) if (m := re.search(r"(\d{1,2})\s*곡", command)) else 10
+    source = "youtube" if "유튜브" in command else "genie" if "지니" in command else MODE.get("music", "genie")
+    n = int(m.group(1)) if (m := re.search(r"(\d{1,2})\s*(곡|개)", command)) else 10
     n = max(1, min(n, 30))
+    if source == "youtube":
+        return play_youtube(command, n)
+    speak("지니에서 찾아볼게요.", then="thinking", chat=False)
     plan = Brain(workdir=DATA, remember=False).ask(
         f"다음 음악 요청을 지니뮤직에서 {n}곡 이어서 틀 계획으로 바꿔 줘. JSON 한 줄만 쓰고 다른 말은 쓰지 마.\n"
         '- 가수나 장르 하나만 말했으면(예: "아이유 노래", "걸그룹 노래"): {"search": "검색어"}  (검색 결과 위에서부터 틀어)\n'
@@ -579,6 +596,31 @@ def handle_music(command):
     if ok:
         set_music(True)
         msg += " 음악이 나오는 동안은 화면 아래 칸에 글자로 말씀해 주세요. 다음 곡은 '다음 곡'이라고 입력하세요."
+    speak(msg)
+    return True
+
+
+def play_youtube(command, n):
+    speak("유튜브에서 찾아볼게요.", then="thinking", chat=False)
+    plan = Brain(workdir=DATA, remember=False).ask(
+        "다음 음악 요청을 유튜브 검색어로 바꿔 줘. JSON 한 줄만 쓰고 다른 말은 쓰지 마. "
+        '형식: {"query": "검색어", "views": true 또는 false}. 조회수·인기·많이 본 것을 원하면 views 는 true. '
+        "검색어에는 '유튜브', '틀어 줘' 같은 말은 빼고 가수·곡·장르만.\n요청: " + command, tools=False)
+    try:
+        plan = json.loads(plan[plan.index("{"): plan.rindex("}") + 1])
+    except ValueError:
+        plan = {"query": re.sub(r"유튜브(에서|로)?|틀어\s*줘|들려\s*줘", "", command).strip(), "views": "조회수" in command}
+    log(f"🎵 유튜브 {'조회수 순 ' if plan.get('views') else ''}{n}곡: {plan.get('query')}")
+    MUSIC_QUEUE.clear()
+    try:
+        genie.stop()
+        ok, titles, msg = youtube.play(str(plan.get("query") or command), n, bool(plan.get("views")))
+    except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
+        ok, msg = False, f"유튜브를 열지 못했어요: {e}"
+    log(f"🎵 {msg}")
+    if ok:
+        set_music(True)
+        msg += " 음악이 나오는 동안은 화면 아래 칸에 글자로 말씀해 주세요."
     speak(msg)
     return True
 
