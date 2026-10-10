@@ -528,7 +528,10 @@ def ask_route(body):
 MUSIC_STOP_RE = re.compile(r"(음악|노래|지니|플레이어)\S*\s*(좀\s*)?(꺼|멈춰|정지|그만|중지)")
 MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡|지니).{0,10}(재생|켜|플레이|듣고\s*싶|들을래|찾아)"
                            r"|(재생|플레이).{0,6}(노래|음악|곡)|듣고\s*싶(어|다)|들을래")
-MUSIC_SOURCE_RE = re.compile(r"(기본|앞으로|이제부터).{0,12}(유튜브|지니)|(유튜브|지니).{0,6}(기본으로|로\s*(바꿔|할게|해\s*줘))")
+YT = r"(?:유\s?튜\s?브|유\s?투\s?브|유튭|you\s?tube)"  # 음성인식이 "유투브", "YouTube" 로도 받아 적음
+YT_RE = re.compile(YT, re.I)
+GENIE_RE = re.compile(r"지니|genie", re.I)
+MUSIC_SOURCE_RE = re.compile(r"(기본|앞으로|이제부터).{0,12}(" + YT + r"|지니)|(" + YT + r"|지니).{0,6}(기본으로|로\s*(바꿔|할게|해\s*줘))", re.I)
 MUSIC_NEXT_RE = re.compile(r"다음\s*곡|넘겨|스킵|skip", re.I)
 NOT_MUSIC_RE = re.compile(r"뉴스|날씨|브리핑|크몽|매출|요약|문의|보고|일정|메일")  # "뉴스 들려줘" 는 음악이 아님
 VOLUME_RE = re.compile(r"(소리|볼륨|음량)\D{0,6}(\d{1,3})\s*(으로|로|%|퍼센트)")
@@ -542,7 +545,7 @@ def handle_music(command):
         return True
     m = MUSIC_SOURCE_RE.search(command)
     if m:
-        MODE["music"] = "youtube" if "유튜브" in m.group(0) else "genie"
+        MODE["music"] = "youtube" if YT_RE.search(m.group(0)) else "genie"
         mode_route({})
         speak("앞으로 음악은 " + ("유튜브" if MODE["music"] == "youtube" else "지니") + "로 틀게요.")
         return True
@@ -560,7 +563,8 @@ def handle_music(command):
         return True
     if not MUSIC_PLAY_RE.search(command) or NOT_MUSIC_RE.search(command):
         return False
-    source = "youtube" if "유튜브" in command else "genie" if "지니" in command else MODE.get("music", "genie")
+    source = "youtube" if YT_RE.search(command) else "genie" if GENIE_RE.search(command) else MODE.get("music", "genie")
+    log(f"🎵 음악 서비스: {'유튜브' if source == 'youtube' else '지니'}")
     n = int(m.group(1)) if (m := re.search(r"(\d{1,2})\s*(곡|개)", command)) else 10
     n = max(1, min(n, 30))
     if source == "youtube":
@@ -609,7 +613,7 @@ def play_youtube(command, n):
     try:
         plan = json.loads(plan[plan.index("{"): plan.rindex("}") + 1])
     except ValueError:
-        plan = {"query": re.sub(r"유튜브(에서|로)?|틀어\s*줘|들려\s*줘", "", command).strip(), "views": "조회수" in command}
+        plan = {"query": re.sub(YT + r"(에서|로)?|틀어\s*줘|들려\s*줘", "", command, flags=re.I).strip(), "views": "조회수" in command}
     log(f"🎵 유튜브 {'조회수 순 ' if plan.get('views') else ''}{n}곡: {plan.get('query')}")
     MUSIC_QUEUE.clear()
     try:
