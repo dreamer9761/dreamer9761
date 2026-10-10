@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>용용이</title>
+<style>
+  :root {
+    --bg-top: #1b2550;
+    --bg-bottom: #0d1226;
+    --scale: #4fc98f;
+    --scale-dark: #2f9e6c;
+    --belly: #fbe8a6;
+    --belly-line: #e7c96f;
+    --horn: #ffd75e;
+    --spike: #ff9a52;
+    --cheek: #ff6f91;
+    --eye: #1d2233;
+    --text: #f3f5ff;
+    --muted: #9aa5d1;
+    --glow: #7ef0c0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(circle at 50% 35%, var(--bg-top), var(--bg-bottom) 70%);
+    color: var(--text);
+    font-family: -apple-system, "Apple SD Gothic Neo", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  .stage { position: relative; width: min(92vw, 420px); }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+
+  /* 전체가 살짝 둥실둥실 */
+  #dragon { animation: bob 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes bob { 50% { transform: translateY(-8px); } }
+
+  #tail { transform-box: fill-box; transform-origin: 0% 100%; animation: sway 2.6s ease-in-out infinite; }
+  @keyframes sway { 50% { transform: rotate(8deg); } }
+
+  .wing { transform-box: fill-box; animation: flap 1.6s ease-in-out infinite; }
+  #wingL { transform-origin: 100% 80%; }
+  #wingR { transform-origin: 0% 80%; animation-name: flapR; }
+  @keyframes flap  { 50% { transform: rotate(-14deg); } }
+  @keyframes flapR { 50% { transform: rotate(14deg); } }
+  body.speaking .wing { animation-duration: .7s; }
+
+  /* 눈 깜빡임 */
+  .eye { transform-box: fill-box; transform-origin: center; animation: blink 4.5s infinite; }
+  @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.08); } }
+  .pupil { transition: transform .35s ease; }
+  body.thinking .pupil { transform: translate(5px, -7px); }
+  body.listening .pupil { transform: scale(1.12); transform-box: fill-box; transform-origin: center; }
+
+  /* 생각 중 말풍선 */
+  #thought { opacity: 0; transition: opacity .3s; }
+  body.thinking #thought { opacity: 1; }
+  #thought .dot { animation: dot 1.2s infinite ease-in-out; }
+  #thought .dot:nth-child(3) { animation-delay: .2s; }
+  #thought .dot:nth-child(4) { animation-delay: .4s; }
+  @keyframes dot { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+  /* 듣는 중 빛나는 고리 */
+  #ring { opacity: 0; transform-box: fill-box; transform-origin: center; }
+  body.listening #ring { animation: pulse 1.4s ease-out infinite; }
+  @keyframes pulse { 0% { opacity: .7; transform: scale(.85); } 100% { opacity: 0; transform: scale(1.25); } }
+
+  #smile { transition: opacity .1s; }
+
+  .status { margin-top: 4px; font-size: 15px; color: var(--muted); height: 22px; letter-spacing: .02em; }
+  .subtitle {
+    margin: 10px 16px 0; max-width: 420px; min-height: 66px;
+    font-size: 17px; line-height: 1.5; text-align: center;
+    background: rgba(255,255,255,.07); border-radius: 14px; padding: 10px 14px;
+    opacity: 0; transition: opacity .3s;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .subtitle.show { opacity: 1; }
+</style>
+</head>
+<body class="idle">
+<div class="stage">
+<svg viewBox="0 0 400 420" aria-label="용용이">
+  <defs>
+    <radialGradient id="g-scale" cx="40%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#6fe3aa"/><stop offset="1" stop-color="var(--scale)"/>
+    </radialGradient>
+  </defs>
+
+  <circle id="ring" cx="200" cy="215" r="170" fill="none" stroke="var(--glow)" stroke-width="6"/>
+
+  <g id="dragon">
+    <!-- 꼬리 -->
+    <g id="tail">
+      <path d="M262 330 C320 340 350 300 340 260 C335 240 350 228 362 236 C356 250 368 262 360 292 C350 340 300 370 250 355 Z"
+            fill="var(--scale-dark)"/>
+      <path d="M356 230 l14 -16 l2 22 Z" fill="var(--spike)"/>
+    </g>
+
+    <!-- 날개 -->
+    <g id="wingL" class="wing">
+      <path d="M140 250 C100 220 70 230 60 190 C85 200 95 185 110 195 C112 180 128 182 135 200 C140 210 150 230 150 250 Z"
+            fill="#8fe6bd" stroke="var(--scale-dark)" stroke-width="3" stroke-linejoin="round"/>
+    </g>
+    <g id="wingR" class="wing">
+      <path d="M260 250 C300 220 330 230 340 190 C315 200 305 185 290 195 C288 180 272 182 265 200 C260 210 250 230 250 250 Z"
+            fill="#8fe6bd" stroke="var(--scale-dark)" stroke-width="3" stroke-linejoin="round"/>
+    </g>
+
+    <!-- 몸 -->
+    <ellipse cx="200" cy="300" rx="78" ry="72" fill="url(#g-scale)"/>
+    <ellipse cx="200" cy="312" rx="48" ry="52" fill="var(--belly)"/>
+    <g stroke="var(--belly-line)" stroke-width="3" stroke-linecap="round">
+      <path d="M170 290 h60"/><path d="M165 310 h70"/><path d="M170 330 h60"/>
+    </g>
+    <!-- 팔·발 -->
+    <ellipse cx="140" cy="300" rx="16" ry="24" fill="var(--scale-dark)" transform="rotate(25 140 300)"/>
+    <ellipse cx="260" cy="300" rx="16" ry="24" fill="var(--scale-dark)" transform="rotate(-25 260 300)"/>
+    <ellipse cx="165" cy="368" rx="26" ry="14" fill="var(--scale-dark)"/>
+    <ellipse cx="235" cy="368" rx="26" ry="14" fill="var(--scale-dark)"/>
+
+    <!-- 머리 -->
+    <g id="head">
+      <!-- 뿔과 등지느러미 -->
+      <path d="M140 92 C130 60 128 40 140 26 C150 50 160 70 165 88 Z" fill="var(--horn)"/>
+      <path d="M260 92 C270 60 272 40 260 26 C250 50 240 70 235 88 Z" fill="var(--horn)"/>
+      <path d="M185 72 l15 -26 l15 26 Z" fill="var(--spike)"/>
+      <ellipse cx="200" cy="150" rx="110" ry="92" fill="url(#g-scale)"/>
+      <!-- 귀 지느러미 -->
+      <path d="M92 140 C70 125 64 110 68 98 C84 104 96 116 104 130 Z" fill="var(--scale-dark)"/>
+      <path d="M308 140 C330 125 336 110 332 98 C316 104 304 116 296 130 Z" fill="var(--scale-dark)"/>
+
+      <!-- 눈 -->
+      <g class="eye">
+        <ellipse cx="158" cy="140" rx="24" ry="28" fill="#fff"/>
+        <g class="pupil"><ellipse cx="162" cy="146" rx="13" ry="16" fill="var(--eye)"/>
+          <circle cx="167" cy="139" r="5" fill="#fff"/></g>
+      </g>
+      <g class="eye">
+        <ellipse cx="242" cy="140" rx="24" ry="28" fill="#fff"/>
+        <g class="pupil"><ellipse cx="238" cy="146" rx="13" ry="16" fill="var(--eye)"/>
+          <circle cx="243" cy="139" r="5" fill="#fff"/></g>
+      </g>
+      <ellipse cx="130" cy="182" rx="16" ry="9" fill="var(--cheek)" opacity=".75"/>
+      <ellipse cx="270" cy="182" rx="16" ry="9" fill="var(--cheek)" opacity=".75"/>
+
+      <!-- 주둥이와 입 -->
+      <ellipse cx="200" cy="198" rx="54" ry="34" fill="#7ee0b2"/>
+      <ellipse cx="184" cy="186" rx="4" ry="3" fill="var(--scale-dark)"/>
+      <ellipse cx="216" cy="186" rx="4" ry="3" fill="var(--scale-dark)"/>
+      <path id="smile" d="M182 206 Q200 220 218 206" fill="none" stroke="var(--eye)" stroke-width="4" stroke-linecap="round"/>
+      <g id="mouth" opacity="0">
+        <ellipse id="mouthOpen" cx="200" cy="210" rx="16" ry="2" fill="#5a1f2e"/>
+        <ellipse id="tongue" cx="200" cy="214" rx="9" ry="0" fill="#ff7b93"/>
+      </g>
+    </g>
+
+    <!-- 생각 말풍선 -->
+    <g id="thought">
+      <circle cx="318" cy="70" r="6" fill="#fff" opacity=".85"/>
+      <rect x="300" y="18" width="78" height="40" rx="20" fill="#fff"/>
+      <circle class="dot" cx="322" cy="38" r="5" fill="var(--eye)"/>
+      <circle class="dot" cx="339" cy="38" r="5" fill="var(--eye)"/>
+      <circle class="dot" cx="356" cy="38" r="5" fill="var(--eye)"/>
+    </g>
+  </g>
+</svg>
+</div>
+<div class="status" id="status"></div>
+<div class="subtitle" id="subtitle"></div>
+
+<script>
+  const body = document.body;
+  const status = document.getElementById('status');
+  const subtitle = document.getElementById('subtitle');
+  const mouth = document.getElementById('mouth');
+  const mouthOpen = document.getElementById('mouthOpen');
+  const tongue = document.getElementById('tongue');
+  const smile = document.getElementById('smile');
+  const LABELS = { idle: '', listening: '듣고 있어요…', thinking: '생각 중이에요…', speaking: '' };
+
+  let speech = null;      // { env, frame, start }
+  let listenTimer = null;
+
+  function setMouth(amp) {
+    const open = amp > 0.08;
+    mouth.setAttribute('opacity', open ? 1 : 0);
+    smile.style.opacity = open ? 0 : 1;
+    mouthOpen.setAttribute('ry', (3 + amp * 20).toFixed(1));
+    mouthOpen.setAttribute('rx', (13 + amp * 6).toFixed(1));
+    tongue.setAttribute('ry', (amp * 7).toFixed(1));
+    tongue.setAttribute('cy', (212 + amp * 10).toFixed(1));
+  }
+
+  function setState(msg) {
+    clearTimeout(listenTimer);
+    body.className = msg.state;
+    status.textContent = LABELS[msg.state] || '';
+    if (msg.state === 'speaking') {
+      subtitle.textContent = msg.text || '';
+      subtitle.classList.add('show');
+      speech = { env: msg.env || [], frame: msg.frame || 0.04, start: performance.now() };
+    } else {
+      speech = null;
+      setMouth(0);
+      if (msg.state !== 'listening') subtitle.classList.remove('show');
+      if (msg.state === 'listening' && msg.seconds) {
+        listenTimer = setTimeout(() => setState({ state: 'idle' }), msg.seconds * 1000);
+      }
+    }
+  }
+
+  function tick(now) {
+    if (speech) {
+      const i = Math.floor((now - speech.start) / 1000 / speech.frame);
+      setMouth(i < speech.env.length ? speech.env[i] : 0);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function connect() {
+    const es = new EventSource('/events');
+    es.onmessage = (e) => setState(JSON.parse(e.data));
+    es.onerror = () => { status.textContent = '용용이를 기다리는 중…'; };
+  }
+  connect();
+
+  // 서버 없이 열었을 때(미리보기) 데모
+  if (location.protocol === 'file:') {
+    const demo = Array.from({ length: 120 }, (_, i) => Math.abs(Math.sin(i / 2.3)) * (i % 17 > 3 ? 1 : 0.1));
+    const seq = [
+      () => setState({ state: 'listening' }),
+      () => setState({ state: 'thinking' }),
+      () => setState({ state: 'speaking', text: '안녕하세요, 용용이예요! 오늘 크몽에 새 문의가 두 건 있어요.', env: demo, frame: 0.04 }),
+      () => setState({ state: 'idle' }),
+    ];
+    let k = 0; seq[0](); setInterval(() => seq[++k % seq.length](), 4000);
+  }
+</script>
+</body>
+</html>

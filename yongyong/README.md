@@ -1,21 +1,28 @@
 # 🐉 용용이 — 음성 업무 비서
 
-"용용아" 하고 부르면 Studio Display 마이크로 듣고, Claude Code(Claude Pro 로그인)로 생각해서, 스피커로 대답합니다.
+"용용아" 하고 부르면 Studio Display 마이크로 듣고, Claude Code(Claude Pro 로그인)로 생각해서, 화면 속 아기 용 캐릭터가 입을 움직이며 대답합니다.
 
-## 설치 (맥미니 터미널에서 한 번만)
+## 설치 (맥미니 터미널에서 한 줄, 업데이트할 때도 같은 명령)
 
 ```bash
-git clone -b claude/mac-mini-local-setup-du34lc https://github.com/dreamer9761/dreamer9761.git ~/dreamer9761
-~/dreamer9761/yongyong/install.sh
+curl -fsSL https://raw.githubusercontent.com/dreamer9761/dreamer9761/claude/mac-mini-local-setup-du34lc/yongyong/bootstrap.sh | bash
 ```
+
+AI(Claude Code), 음성인식(Whisper), 캐릭터까지 한 번에 설치하고 바탕화면에 **용용이** 아이콘을 만듭니다.
 
 설치 스크립트가 맥 사양(칩, 메모리, 마이크)을 읽어서 말로 알려 주고, 메모리에 맞는 음성인식 모델을 골라 설치합니다.
 
 ## 실행
 
-```bash
-~/dreamer9761/yongyong/run.sh
-```
+바탕화면의 **용용이** 아이콘을 더블클릭 (또는 `~/dreamer9761/yongyong/run.sh`).
+용용이 캐릭터 창이 뜨고 "용용이 준비됐어요" 하고 인사합니다.
+
+| 캐릭터 모습 | 뜻 |
+|---|---|
+| 둥실둥실, 눈 깜빡 | 대기 중 ("용용아" 기다림) |
+| 초록 빛 고리가 퍼짐 | 듣고 있어요 |
+| 말풍선 ··· | 생각(작업) 중 |
+| 입이 소리에 맞춰 움직임 + 자막 | 말하는 중 |
 
 - 처음 실행할 때 마이크 권한 창이 뜨면 **허용**
 - 음성인식 모델 다운로드 때문에 첫 실행은 몇 분 걸려요
@@ -54,6 +61,7 @@ git clone -b claude/mac-mini-local-setup-du34lc https://github.com/dreamer9761/d
 export YONGYONG_MIN_RMS=0.004        # 잘 못 알아들으면 낮추고, 잡음에 자꾸 반응하면 높이기
 export YONGYONG_WORKDIR=~/projects   # 개발 작업 폴더
 export YONGYONG_VOICE=Yuna           # 목소리
+export YONGYONG_FACE=0               # 캐릭터 창 끄기
 export YONGYONG_KMONG_POLL=30        # 크몽 확인 주기(초), 0 이면 자동 감시 끔
 ```
 

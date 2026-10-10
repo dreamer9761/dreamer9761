@@ -7,11 +7,13 @@ import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import face
 import kmong
 import mlx_whisper
 import numpy as np
@@ -57,6 +59,9 @@ MIN_SPEECH_SEC = 0.3
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
 
+SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
+
+FACE = face.Face()
 audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
 muted = threading.Event()
 
@@ -124,9 +129,18 @@ def for_speech(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def speak(text):
+def speak(text, then="idle"):
+    """말하면서 캐릭터 입을 소리 크기에 맞춰 움직인다. 끝나면 캐릭터를 `then` 상태로."""
     print(f"\n🐉 용용이: {text}\n", flush=True)
-    subprocess.run(["say", "-v", VOICE, "-r", "200", for_speech(text)], check=False)
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "say.wav"
+        subprocess.run(["say", "-v", VOICE, "-r", "200", "-o", str(wav), "--file-format=WAVE",
+                        "--data-format=LEI16@22050", for_speech(text)], check=False)
+        if not wav.exists():
+            return
+        FACE.show("speaking", text=text, env=face.envelope(wav), frame=face.FRAME_SEC)
+        subprocess.run(["afplay", str(wav)], check=False)
+    FACE.show(then, **({"seconds": FOLLOW_UP_SEC} if then == "listening" else {}))
 
 
 @contextmanager
@@ -202,7 +216,7 @@ def kmong_watch(busy):
         if not new_lines:
             continue
         log("크몽 화면 변화 감지 → 확인 중")
-        report = brain.ask(kmong_prompt(page, new_lines)).strip()
+        report = brain.ask(kmong_prompt(page, new_lines)).strip()  # 캐릭터 상태는 건드리지 않음
         if report and report.strip(" .'\"") != "없음":
             with busy, deaf():
                 speak("크몽 알림이에요. " + report)
@@ -234,6 +248,8 @@ def main():
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32))
 
     brain = Brain()
+    if SHOW_FACE:
+        FACE.start()
     busy = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, args=(busy,), daemon=True).start()
@@ -246,6 +262,7 @@ def main():
     with sd.InputStream(device=dev, channels=1, samplerate=rate, dtype="float32",
                         blocksize=int(rate * BLOCK_SEC), callback=on_audio):
         with deaf():
+            time.sleep(2 if SHOW_FACE else 0)  # 캐릭터 창이 뜰 시간
             speak("용용이 준비됐어요. 용용아 하고 불러 주세요.")
         awake_until = 0.0
         for audio in utterances(rate):
@@ -264,16 +281,16 @@ def main():
 
                 log(f"🎤 {text}")
                 if not command:
-                    speak("네.")
+                    speak("네.", then="listening")
                     awake_until = time.time() + FOLLOW_UP_SEC
                     continue
                 if RESET_RE.search(command) and len(command) < 15:
                     brain.session_id = None
-                    speak("새 대화를 시작할게요.")
+                    speak("새 대화를 시작할게요.", then="listening")
                     awake_until = time.time() + FOLLOW_UP_SEC
                     continue
 
-                subprocess.Popen(["say", "-v", VOICE, "네, 잠시만요."])
+                speak("네, 잠시만요.", then="thinking")
                 if "크몽" in command:
                     try:
                         page = kmong.snapshot()
@@ -282,7 +299,7 @@ def main():
                     except kmong.SafariError as e:
                         speak(str(e))
                         continue
-                speak(brain.ask(command))
+                speak(brain.ask(command), then="listening")
                 awake_until = time.time() + FOLLOW_UP_SEC
 
 
