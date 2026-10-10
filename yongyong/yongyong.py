@@ -389,7 +389,9 @@ def ask_route(body):
 
 # 음악은 Claude 에게 맡기지 않고 여기서 바로 지니로 튼다 (다른 앱이 열리지 않도록)
 MUSIC_STOP_RE = re.compile(r"(음악|노래|지니|플레이어)\S*\s*(좀\s*)?(꺼|멈춰|정지|그만|중지)")
-MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡).{0,10}재생|재생.{0,6}(노래|음악|곡)")
+MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡|지니).{0,10}(재생|켜|플레이|듣고\s*싶|들을래|찾아)"
+                           r"|(재생|플레이).{0,6}(노래|음악|곡)|듣고\s*싶(어|다)|들을래")
+NOT_MUSIC_RE = re.compile(r"뉴스|날씨|브리핑|크몽|매출|요약|문의|보고|일정|메일")  # "뉴스 들려줘" 는 음악이 아님
 VOLUME_RE = re.compile(r"(소리|볼륨|음량)\D{0,6}(\d{1,3})\s*(으로|로|%|퍼센트)")
 
 
@@ -402,7 +404,7 @@ def handle_music(command):
     if MUSIC_STOP_RE.search(command):
         speak(genie.stop())
         return True
-    if not MUSIC_PLAY_RE.search(command):
+    if not MUSIC_PLAY_RE.search(command) or NOT_MUSIC_RE.search(command):
         return False
     speak("지니에서 찾아볼게요.", then="thinking", chat=False)
     query = Brain(workdir=DATA, remember=False).ask(
