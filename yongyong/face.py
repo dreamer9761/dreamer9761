@@ -10,9 +10,13 @@ from pathlib import Path
 
 import numpy as np
 
+import remote
+
 FACE_DIR = Path(__file__).resolve().parent / "face"
 PAGE = FACE_DIR / "index.html"
-TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}
+TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png",
+         ".webmanifest": "application/manifest+json"}
+LOCAL_ONLY = {"/window", "/login/start", "/login/token"}  # 맥미니 앞에서만 의미 있는 기능
 PORT = int(os.environ.get("YONGYONG_FACE_PORT", "8765"))
 FRAME_SEC = 0.04  # 입 모양을 바꾸는 간격
 
@@ -57,8 +61,52 @@ class Face:
             def log_message(self, *args):
                 pass
 
+            # 맥미니 안의 사파리가 아니라 Tailscale 등으로 밖에서 들어온 요청인지
+            def _is_remote(self):
+                return (self.client_address[0] not in ("127.0.0.1", "::1")
+                        or any(h.lower().startswith(("x-forwarded", "tailscale-")) for h in self.headers.keys()))
+
+            def _token(self):
+                for part in (self.headers.get("Cookie") or "").split(";"):
+                    k, _, v = part.strip().partition("=")
+                    if k == "yy_token":
+                        return v
+                return ""
+
+            def _json(self, result, cookie=None):
+                data = json.dumps(result, ensure_ascii=False).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                if cookie is not None:
+                    self.send_header("Set-Cookie", f"yy_token={cookie}; Path=/; HttpOnly; Secure; SameSite=Strict; "
+                                                   f"Max-Age={remote.TOKEN_DAYS * 86400 if cookie else 0}")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _auth(self, body):
+                is_remote = self._is_remote()
+                if self.path == "/auth/check":
+                    return self._json({"ok": not is_remote or remote.valid(self._token()), "remote": is_remote,
+                                       "enabled": remote.enabled()})
+                if self.path == "/auth/login":
+                    if not is_remote:
+                        return self._json({"ok": True})
+                    if remote.locked():
+                        return self._json({"ok": False, "error": "여러 번 틀려서 10분 동안 잠겼어요."})
+                    token = remote.login(body.get("id", ""), body.get("pw", ""))
+                    if not token:
+                        return self._json({"ok": False, "error": "아이디나 비밀번호가 맞지 않아요."})
+                    return self._json({"ok": True}, cookie=token)
+                if self.path == "/auth/logout":
+                    remote.logout(self._token())
+                    return self._json({"ok": True}, cookie="")
+
             def do_GET(self):
                 if self.path == "/events":
+                    if self._is_remote() and not remote.valid(self._token()):
+                        self.send_error(401)
+                        return
                     return self._events()
                 name = Path(self.path.split("?")[0]).name or "index.html"  # face 폴더 안 파일만
                 file = FACE_DIR / name
@@ -76,22 +124,27 @@ class Face:
 
             def do_POST(self):
                 # 다른 웹사이트가 몰래 요청하지 못하도록 자체 헤더를 요구 (브라우저가 교차 출처 요청을 막음)
-                route = face.routes.get(self.path)
-                if route is None or self.headers.get("X-Yongyong") != "1":
+                if self.headers.get("X-Yongyong") != "1":
                     self.send_error(403)
                     return
-                length = int(self.headers.get("Content-Length") or 0)
+                length = min(int(self.headers.get("Content-Length") or 0), 2_000_000)
                 try:
                     body = json.loads(self.rfile.read(length) or b"{}")
+                except ValueError:
+                    body = {}
+                if self.path.startswith("/auth/"):
+                    return self._auth(body)
+                route = face.routes.get(self.path)
+                is_remote = self._is_remote()
+                if route is None or (is_remote and (self.path in LOCAL_ONLY or not remote.valid(self._token()))):
+                    self.send_error(403 if route else 404)
+                    return
+                body["_remote"] = is_remote  # 밖에서 온 요청이면 집에서 소리 내지 않도록
+                try:
                     result = route(body)
                 except Exception as e:  # 화면에 오류를 보여 주기 위해
                     result = {"ok": False, "error": str(e)}
-                data = json.dumps(result, ensure_ascii=False).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
+                self._json(result)
 
             def _events(self):
                 self.send_response(200)

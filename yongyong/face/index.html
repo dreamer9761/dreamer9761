@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>용용이</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1226">
+<link rel="apple-touch-icon" href="icon.png">
+<script src="auth.js"></script>
 <script src="korea-map.js"></script>
 <link rel="stylesheet" href="weather.css">
 <script src="weather.js"></script>
@@ -240,6 +244,18 @@
   <div class="dash-hint">마우스를 움직이거나 "용용아" 하고 부르면 돌아가요</div>
 </div>
 
+<div class="auth" id="auth">
+  <form id="auth-form" class="auth-card">
+    <img src="icon.png" alt="" class="auth-logo">
+    <h2>용용이 로그인</h2>
+    <input id="auth-id" placeholder="아이디" autocomplete="username" autocapitalize="off" required>
+    <input id="auth-pw" type="password" placeholder="비밀번호" autocomplete="current-password" required>
+    <button type="submit">로그인</button>
+    <div class="auth-msg" id="auth-msg"></div>
+  </form>
+</div>
+<button class="account remote-logout" id="remote-logout" hidden>로그아웃</button>
+
 <button class="account tpl-link" id="tpl-open">자주 쓰는 문구</button>
 <button class="account" id="account">Claude 계정 연결</button>
 
@@ -431,7 +447,10 @@
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if ((msg.state && msg.state !== 'idle') || msg.panel === 'chat') window.YongDash.activity();
-      if (msg.panel === 'dash') { msg.on ? window.YongDash.show() : window.YongDash.hide(); return; }
+      if (msg.panel === 'dash') {  // 대기 화면은 맥미니 화면에서만
+        if (!document.documentElement.classList.contains('remote')) msg.on ? window.YongDash.show() : window.YongDash.hide();
+        return;
+      }
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
@@ -446,7 +465,7 @@
     };
     es.onerror = () => { status.textContent = '용용이를 기다리는 중…'; };
   }
-  connect();
+  window.YongAuth.start(connect);
 
   // 서버 없이 열었을 때(미리보기) 데모
   if (location.protocol === 'file:') {

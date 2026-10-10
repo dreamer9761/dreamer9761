@@ -8,6 +8,7 @@
 
   function apply(m) {
     mode = { ...mode, ...m };
+    if (document.documentElement.classList.contains('remote')) mode = { ...mode, input: 'text' };  // 밖에서는 항상 글자로
     document.documentElement.classList.toggle('text-mode', mode.input === 'text');
     document.documentElement.classList.toggle('music-on', !!mode.music);
     $('mode-voice').disabled = !!mode.music;

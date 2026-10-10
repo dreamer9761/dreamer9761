@@ -108,6 +108,7 @@ BRIEFING_PROMPT = ("아침 브리핑을 해 줘. 순서: 기본 지역 날씨, �
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
 FACE = face.Face()
+_local = threading.local()
 SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
 MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
@@ -262,7 +263,7 @@ def speak(text, then="idle", chat=True):
         then = "idle"
     if chat:
         FACE.chat("yongyong", text)
-    if not MODE["speak"]:
+    if not MODE["speak"] or getattr(_local, "quiet", False):  # 밖(휴대폰·사무실)에서 온 요청이면 집에서 소리 내지 않음
         FACE.show(then if then != "listening" else "idle")
         return
     with tempfile.TemporaryDirectory() as tmp:
@@ -627,9 +628,12 @@ def ask_route(body):
     if not text:
         return {"ok": False, "error": "내용을 입력해 주세요."}
 
+    quiet = bool(body.get("_remote"))
+
     def run():
+        _local.quiet = quiet
         with BUSY, deaf():
-            log(f"⌨️ {text}")
+            log(("📱 " if quiet else "⌨️ ") + text)
             handle_command(text)
     threading.Thread(target=run, daemon=True).start()
     return {"ok": True}
