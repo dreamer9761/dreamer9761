@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import face
+import blogpost
 import genie
 import kmong
 import youtube
@@ -498,6 +499,10 @@ def blog_week():
     answer = Brain(remember=False).ask(BLOG_PROMPT)
     with BUSY, deaf():
         speak(show_panels(answer))
+        speak("네이버 글쓰기 화면에 미리 채워 둘게요.", then="thinking")
+        msg = blog_fill("naver")  # 발행 직전까지 준비해 두고, 발행은 대표님이 확인 후
+        log(f"📝 {msg}")
+        speak(msg)
 
 
 def blog_route(_body):
@@ -519,6 +524,39 @@ def blog_route(_body):
     out["images"] = [{"kind": k.strip(), "parts": [x.strip() for x in v.split("|") if x.strip()]}
                      for k, v in re.findall(r"^\s*-\s*([^:：\n]+)[:：]\s*(.+)$", m.group(1) if m else "", re.M)]
     return out
+
+
+def blog_fill(site):
+    """최근 초안으로 글쓰기 화면을 열어 채운다 (발행은 대표님이 직접)."""
+    try:
+        title, body, tags = blogpost.latest(site)
+        return blogpost.fill(site, title, body, tags, MODE.get("tistory", ""))
+    except (kmong.SafariError, subprocess.TimeoutExpired) as e:
+        return str(e)
+
+
+def blog_fill_route(body):
+    site = "tistory" if body.get("site") == "tistory" else "naver"
+    msg = blog_fill(site)
+    log(f"📝 {msg}")
+    return {"ok": "넣었어요" in msg, "message": msg}
+
+
+BLOG_POST_RE = re.compile(r"블로그.{0,10}(올려|채워|붙여|발행|업로드)|(네이버|티스토리).{0,8}(올려|채워)")
+
+
+def handle_blog_post(command):
+    if not BLOG_POST_RE.search(command):
+        return False
+    sites = ["tistory"] if "티스토리" in command else ["naver"] if "네이버" in command else ["naver", "tistory"]
+    if "tistory" in sites and not MODE.get("tistory"):
+        sites = [x for x in sites if x != "tistory"] or sites
+    speak("블로그 글쓰기 화면을 열어서 초안을 채울게요.", then="thinking")
+    for site in sites:
+        msg = blog_fill(site)
+        log(f"📝 {msg}")
+        speak(msg)
+    return True
 
 
 def schedule_loop():
@@ -743,6 +781,8 @@ def handle_command(command):
     if TEMPLATE_EDIT_RE.search(command):
         FACE.panel("templates")
         speak("화면에 자주 쓰는 문구 칸을 띄웠어요. 문구를 붙여넣고 저장해 주세요.")
+        return
+    if handle_blog_post(command):
         return
     if TEMPLATE_RE.search(command):
         fetch_templates()
@@ -971,6 +1011,7 @@ def main():
         FACE.routes["/templates"] = templates_route
         FACE.routes["/templates/save"] = templates_save_route
         FACE.routes["/blog"] = blog_route
+        FACE.routes["/blog/fill"] = blog_fill_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄

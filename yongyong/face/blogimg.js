@@ -7,6 +7,9 @@
     ['#2a1430', '#b23a48', '#ffd6a5'], ['#10243e', '#2f5d8a', '#9ad1ff'],
   ];
 
+  const mascot = new Image();  // 용용이 캐릭터 (블로그 화자)
+  mascot.src = 'mascot.png';
+
   function wrap(ctx, text, maxW) {
     const lines = [];
     for (const para of String(text).split('\n')) {
@@ -38,7 +41,8 @@
     ctx.globalAlpha = 1;
     ctx.fillStyle = t[2]; ctx.fillRect(90, 90, 120, 12);
     ctx.font = `600 30px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.75)';
-    ctx.fillText('스마트로보코리아 · 크몽', 90, H - 90);
+    ctx.fillText('스마트로보코리아 용용이', 90, H - 90);
+    if (mascot.complete && mascot.naturalWidth) ctx.drawImage(mascot, W - 250, H - 260, 200, 200);
   }
 
   function draw(spec, i) {

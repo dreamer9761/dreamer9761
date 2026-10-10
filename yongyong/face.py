@@ -12,7 +12,7 @@ import numpy as np
 
 FACE_DIR = Path(__file__).resolve().parent / "face"
 PAGE = FACE_DIR / "index.html"
-TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}
+TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}
 PORT = int(os.environ.get("YONGYONG_FACE_PORT", "8765"))
 FRAME_SEC = 0.04  # 입 모양을 바꾸는 간격
 
@@ -67,7 +67,8 @@ class Face:
                     return
                 body = file.read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", f"{TYPES[file.suffix]}; charset=utf-8")
+                ctype = TYPES[file.suffix]
+                self.send_header("Content-Type", ctype if ctype.startswith("image/") else f"{ctype}; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")  # 업데이트 후 옛 화면이 남지 않도록
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

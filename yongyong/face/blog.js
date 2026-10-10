@@ -76,8 +76,22 @@
     window.open(`https://${name}.tistory.com/manage/newpost`, '_blank');
   }
 
+  async function autofill() {
+    $('blog-msg').textContent = '글쓰기 화면을 열어 채우는 중이에요… (30초 정도)';
+    $('blog-fill').disabled = true;
+    try { const r = await post('/blog/fill', { site }); $('blog-msg').textContent = r.message; }
+    catch (e) { $('blog-msg').textContent = '채우지 못했어요.'; }
+    $('blog-fill').disabled = false;
+  }
+
+  function saveAll() {
+    document.querySelectorAll('#blog-images .blog-img button:not(.ghost)').forEach((b, i) => setTimeout(() => b.click(), i * 400));
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     $('blog-close').onclick = close;
+    $('blog-fill').onclick = autofill;
+    $('blog-save-all').onclick = saveAll;
     document.querySelectorAll('.blog-tab').forEach((b) => b.onclick = () => { site = b.dataset.site; render(); });
     $('blog-open').onclick = openEditor;
     $('blog-copy-title').onclick = () => copy($('blog-title').value, '', '제목을');
