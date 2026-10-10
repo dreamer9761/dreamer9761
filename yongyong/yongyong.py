@@ -5,6 +5,7 @@ import json
 import math
 import os
 import queue
+import random
 import re
 import shutil
 import subprocess
@@ -101,7 +102,14 @@ SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
 FACE = face.Face()
 SETTINGS = DATA / "settings.json"
-MODE = {"input": "voice", "speak": True}  # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도
+# input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
+MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00")}
+WAKE_SONGS = [  # 기상 음악 (지니에서 검색할 걸그룹 노래, 매일 다른 곡)
+    "아이브 LOVE DIVE", "아이브 해야", "뉴진스 Hype Boy", "뉴진스 Super Shy", "르세라핌 ANTIFRAGILE",
+    "에스파 Supernova", "에스파 Whiplash", "트와이스 TT", "트와이스 FANCY", "레드벨벳 빨간 맛", "있지 달라달라",
+    "(여자)아이들 퀸카", "블랙핑크 뚜두뚜두", "소녀시대 다시 만난 세계", "아일릿 Magnetic", "키스오브라이프 Midas Touch",
+    "베이비몬스터 SHEESH", "오마이걸 살짝 설렜어", "마마무 HIP", "스테이씨 ASAP",
+]
 BUSY = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
 ENV_FILE = HERE / ".env"
 audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
@@ -339,20 +347,77 @@ def show_panels(answer):
     return PANEL_TAG.sub("", answer).strip()
 
 
-def briefing_loop():
-    """매일 BRIEFING_TIME 에 아침 브리핑."""
-    last_day = None
-    while True:
-        time.sleep(20)
-        now = time.strftime("%H:%M")
-        today = time.strftime("%Y-%m-%d")
-        if now != BRIEFING_TIME or last_day == today:
-            continue
-        last_day = today
-        log("아침 브리핑 시작")
-        answer = Brain().ask(BRIEFING_PROMPT)
+def briefing():
+    log("아침 브리핑 시작")
+    answer = Brain().ask(BRIEFING_PROMPT)
+    with BUSY, deaf():
+        speak("좋은 아침이에요, 대표님. " + show_panels(answer))
+
+
+def wake_up():
+    """기상 음악: 지니에서 걸그룹 노래를 작은 소리로 틀고 점점 키운다."""
+    state_file = DATA / "alarm.json"
+    try:
+        last = json.loads(state_file.read_text()).get("song")
+    except (OSError, ValueError):
+        last = None
+    song = random.choice([x for x in WAKE_SONGS if x != last])
+    state_file.write_text(json.dumps({"song": song, "date": time.strftime("%Y-%m-%d")}, ensure_ascii=False))
+    log(f"⏰ 기상 음악: {song}")
+    with BUSY, deaf():
+        genie.volume(35)
+        speak("좋은 아침이에요, 대표님! 일어날 시간이에요.")
+    try:
+        result = genie.play(song)
+    except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
+        result = f"지니를 열지 못했어요: {e}"
+    log(f"🎵 {result}")
+    if "재생을 시작" not in result:
         with BUSY, deaf():
-            speak("좋은 아침이에요, 대표님. " + show_panels(answer))
+            speak("기상 음악을 틀지 못했어요. " + result.split(" 플레이어 창이 안 뜨면")[0])
+        return
+    for level in (45, 55, 65):  # 1분 30초에 걸쳐 소리를 조금씩 키움
+        time.sleep(30)
+        genie.volume(level)
+
+
+def schedule_loop():
+    """매일 정해진 시각에 기상 음악과 아침 브리핑."""
+    done = set()
+    while True:
+        time.sleep(15)
+        now, today = time.strftime("%H:%M"), time.strftime("%Y-%m-%d")
+        jobs = [("alarm", MODE.get("alarm"), wake_up), ("briefing", BRIEFING_TIME, briefing)]
+        for name, at, job in jobs:
+            if at and now == at and (name, today) not in done:
+                done.add((name, today))
+                threading.Thread(target=job, daemon=True).start()
+
+
+_TIME = r"(오전|아침|오후|저녁)?\s*(\d{1,2})\s*시\s*(반|(\d{1,2})\s*분)?"
+ALARM_RE = re.compile(r"(?:알람|기상|깨워).{0,12}?" + _TIME + r"|" + _TIME + r".{0,8}(?:깨워|알람|기상)")
+ALARM_OFF_RE = re.compile(r"(알람|기상\s*음악).{0,6}(꺼|끄|취소|없애|그만)")
+
+
+def handle_alarm(command):
+    """'알람 6시 반으로 바꿔 줘', '알람 꺼 줘' 같은 요청이면 처리하고 True."""
+    if ALARM_OFF_RE.search(command):
+        MODE["alarm"] = ""
+        mode_route({})
+        speak("기상 음악을 껐어요.")
+        return True
+    m = ALARM_RE.search(command)
+    if not m:
+        return False
+    ampm, h, half, mins = m.groups()[:4] if m.group(2) else m.groups()[4:8]
+    hour = int(h) % 24
+    if ampm in ("오후", "저녁") and hour < 12:
+        hour += 12
+    minute = 30 if half == "반" else int(mins or 0)
+    MODE["alarm"] = f"{hour:02d}:{minute:02d}"
+    mode_route({})
+    speak(f"매일 {hour}시{f' {minute}분' if minute else ''}에 지니 걸그룹 노래로 깨워 드릴게요.")
+    return True
 
 
 def load_mode():
@@ -441,7 +506,7 @@ def handle_command(command):
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
 
-    if handle_music(command):
+    if handle_alarm(command) or handle_music(command):
         return
     speak("네, 잠시만요.", then="thinking", chat=False)
     if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
@@ -543,9 +608,8 @@ def main():
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, daemon=True).start()
         log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
-    if re.fullmatch(r"\d{2}:\d{2}", BRIEFING_TIME):
-        threading.Thread(target=briefing_loop, daemon=True).start()
-        log(f"아침 브리핑: 매일 {BRIEFING_TIME}")
+    threading.Thread(target=schedule_loop, daemon=True).start()
+    log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'}")
 
     def on_audio(indata, frames, t, status):
         if not muted.is_set() and MODE["input"] == "voice":
