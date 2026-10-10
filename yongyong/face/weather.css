@@ -150,3 +150,5 @@ html.dash-on .dash {
   background: var(--scale); color: #0d1226; }
 .draft-actions button.ghost { background: rgba(255,255,255,.1); color: var(--text); }
 .draft-msg { margin-top: 8px; font-size: 14px; color: var(--glow); min-height: 20px; }
+.tpl-text { min-height: 55vh; font-size: 14px; }
+.account.tpl-link { right: 150px; }

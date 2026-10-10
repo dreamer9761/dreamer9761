@@ -633,6 +633,7 @@ def play_youtube(command, n):
     return True
 
 
+TEMPLATE_EDIT_RE = re.compile(r"자주\s*쓰는\s*문구.{0,10}(추가|편집|수정|관리|열어|보여)")
 TEMPLATE_RE = re.compile(r"자주\s*쓰는\s*문구.{0,10}(가져|읽어|불러|업데이트|새로|저장)")
 
 
@@ -670,6 +671,10 @@ def handle_command(command):
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
 
+    if TEMPLATE_EDIT_RE.search(command):
+        FACE.panel("templates")
+        speak("화면에 자주 쓰는 문구 칸을 띄웠어요. 문구를 붙여넣고 저장해 주세요.")
+        return
     if TEMPLATE_RE.search(command):
         fetch_templates()
         return
@@ -763,6 +768,21 @@ def window_route(body):
     elif not full:
         _saved_bounds.clear()
     return {"ok": True}
+
+
+TEMPLATES = DATA / "kmong_templates.md"
+
+
+def templates_route(_body):
+    return {"ok": True, "text": TEMPLATES.read_text(encoding="utf-8") if TEMPLATES.exists() else ""}
+
+
+def templates_save_route(body):
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return {"ok": False, "error": "내용이 비어 있어요."}
+    TEMPLATES.write_text(text + "\n", encoding="utf-8")
+    return {"ok": True, "count": len(re.findall(r"^###\s", text, re.M))}
 
 
 def draft_route(_body):
@@ -879,6 +899,8 @@ def main():
         FACE.routes["/window"] = window_route
         FACE.routes["/draft"] = draft_route
         FACE.routes["/draft/insert"] = draft_insert_route
+        FACE.routes["/templates"] = templates_route
+        FACE.routes["/templates/save"] = templates_save_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄

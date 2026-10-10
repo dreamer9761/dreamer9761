@@ -12,6 +12,7 @@
 <script src="chat.js"></script>
 <script src="dash.js"></script>
 <script src="draft.js"></script>
+<script src="templates.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -237,6 +238,7 @@
   <div class="dash-hint">마우스를 움직이거나 "용용아" 하고 부르면 돌아가요</div>
 </div>
 
+<button class="account tpl-link" id="tpl-open">자주 쓰는 문구</button>
 <button class="account" id="account">Claude 계정 연결</button>
 
 <div class="login" id="login">
@@ -276,6 +278,16 @@
       <button class="wx-close" id="news-close" aria-label="닫기">✕</button>
     </div>
     <ol class="news-list" id="news-list"></ol>
+  </section>
+  <section class="wx side-panel" id="tpl" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place">📋 자주 쓰는 문구</div>
+        <div class="wx-updated">문구마다 맨 윗줄에 "### 제목", 그 아래에 내용을 붙여넣으세요</div></div>
+      <button class="wx-close" id="tpl-close" aria-label="닫기">✕</button>
+    </div>
+    <textarea id="tpl-text" class="draft-text tpl-text" spellcheck="false"></textarea>
+    <div class="draft-actions"><button id="tpl-save">저장</button></div>
+    <div class="draft-msg" id="tpl-msg"></div>
   </section>
   <section class="wx side-panel" id="draft" hidden>
     <div class="wx-head">
@@ -401,6 +413,7 @@
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
       else if (msg.panel === 'draft') window.YongDraft.show();
+      else if (msg.panel === 'templates') window.YongTemplates.show();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
