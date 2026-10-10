@@ -10,7 +10,9 @@ from pathlib import Path
 
 import numpy as np
 
-PAGE = Path(__file__).resolve().parent / "face" / "index.html"
+FACE_DIR = Path(__file__).resolve().parent / "face"
+PAGE = FACE_DIR / "index.html"
+TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}
 PORT = int(os.environ.get("YONGYONG_FACE_PORT", "8765"))
 FRAME_SEC = 0.04  # 입 모양을 바꾸는 간격
 
@@ -30,6 +32,13 @@ class Face:
             for q in self._clients:
                 q.put(msg)
 
+    def panel(self, kind, **extra):
+        """캐릭터 옆 정보 패널 (예: weather). 상태와 달리 새로 연결된 창에 다시 보내지 않는다."""
+        msg = json.dumps({"panel": kind, **extra}, ensure_ascii=False)
+        with self._lock:
+            for q in self._clients:
+                q.put(msg)
+
     def start(self, open_window=True):
         face = self
 
@@ -40,9 +49,14 @@ class Face:
             def do_GET(self):
                 if self.path == "/events":
                     return self._events()
-                body = PAGE.read_bytes()
+                name = Path(self.path.split("?")[0]).name or "index.html"  # face 폴더 안 파일만
+                file = FACE_DIR / name
+                if file.suffix not in TYPES or not file.is_file():
+                    self.send_error(404)
+                    return
+                body = file.read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Type", f"{TYPES[file.suffix]}; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")  # 업데이트 후 옛 화면이 남지 않도록
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()

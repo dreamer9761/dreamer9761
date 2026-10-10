@@ -74,6 +74,7 @@ MIN_SPEECH_SEC = 0.4
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
 LOGIN_RE = re.compile(r"로그인|계정\s?연결")
+PANEL_TAG = re.compile(r"\[\[날씨:\s*([^\]]+?)\s*\]\]")
 
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
@@ -397,7 +398,10 @@ def main():
                     except kmong.SafariError as e:
                         speak(str(e))
                         continue
-                speak(brain.ask(command), then="listening")
+                answer = brain.ask(command)
+                for place in PANEL_TAG.findall(answer)[:1]:
+                    FACE.panel("weather", place=place)
+                speak(PANEL_TAG.sub("", answer).strip(), then="listening")
                 awake_until = time.time() + FOLLOW_UP_SEC
 
 

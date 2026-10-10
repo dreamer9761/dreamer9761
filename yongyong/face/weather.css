@@ -1,0 +1,51 @@
+/* 날씨 패널 */
+.col-char { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.col-side { display: none; }
+html.has-weather body { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 20px; padding: 20px 16px; overflow: auto; }
+html.has-weather .col-side { display: block; flex: 1 1 520px; max-width: 760px; }
+html.has-weather .col-char { flex: 0 0 280px; width: auto; }
+html.has-weather .stage { width: 240px; }
+html.has-weather .subtitle { max-width: 280px; }
+@media (max-width: 840px) {
+  html.has-weather .col-char { flex-basis: 100%; }
+  html.has-weather .stage { width: 160px; }
+}
+
+.wx { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 16px; }
+.wx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wx-place { font-size: 20px; font-weight: 700; }
+.wx-updated { font-size: 12px; color: var(--muted); }
+.wx-close { border: 0; background: rgba(255,255,255,.1); color: var(--text); border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 15px; }
+
+.wx-now { display: flex; align-items: center; gap: 16px; margin: 10px 0 14px; }
+.wx-now .icon { font-size: 54px; line-height: 1; }
+.wx-now .temp { font-size: 46px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wx-now .desc { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.wx-now .desc b { color: var(--text); font-size: 16px; }
+
+#wx-map { height: 300px; border-radius: 14px; overflow: hidden; background: #0b1020; }
+.wx-legend { font-size: 12px; color: var(--muted); margin: 6px 2px 0; }
+
+.wx-pin { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -50%); white-space: nowrap; pointer-events: none; }
+.wx-pin .i { font-size: 22px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+.wx-pin .t { font: 700 13px -apple-system, sans-serif; color: #fff; text-shadow: 0 1px 3px #000; }
+.wx-pin .n { font: 11px -apple-system, "Apple SD Gothic Neo", sans-serif; color: #dfe6ff; text-shadow: 0 1px 3px #000; }
+.wx-pin.main .i { font-size: 32px; }
+.wx-pin.main .t { font-size: 16px; color: var(--glow); }
+
+.wx-title { margin: 16px 2px 8px; font-size: 14px; color: var(--muted); }
+.wx-row { display: grid; gap: 6px; }
+.wx-hours { grid-template-columns: repeat(8, 1fr); }
+.wx-days { grid-template-columns: repeat(7, 1fr); }
+.wx-cell { background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 2px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.wx-cell .i { font-size: 24px; margin: 4px 0; }
+.wx-cell .lbl { color: var(--muted); font-size: 12px; }
+.wx-cell .rain { color: #7cc4ff; font-size: 11px; min-height: 14px; }
+.wx-cell .hi { font-weight: 700; }
+.wx-cell .lo { color: var(--muted); }
+.wx-cell.today { outline: 2px solid var(--scale); }
+.wx-err { color: #ff9a9a; margin-top: 8px; }
+@media (max-width: 560px) {
+  .wx-hours { grid-template-columns: repeat(4, 1fr); }
+  .wx-days { grid-template-columns: repeat(4, 1fr); }
+}
