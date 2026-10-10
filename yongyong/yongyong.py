@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 PERSONA = (HERE / "persona.md").read_text(encoding="utf-8")
 DATA = HERE / "data"  # 고객 메모 등 (git 에 올라가지 않음)
 CUSTOMERS = DATA / "customers.md"
+MEMO = DATA / "memo.md"  # 대표님 선호 등 오래 기억할 것
 
 KMONG_INSTRUCTIONS = f"""아래는 대표님 사파리에 떠 있는 크몽 화면의 글자야.
 
@@ -185,6 +186,11 @@ def deaf():
         muted.clear()
 
 
+def system_prompt():
+    memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
+    return f"{PERSONA}\n\n기억 (파일: {MEMO})\n{memo}\n"
+
+
 class Brain:
     """Claude Code(`claude -p`)를 두뇌로 사용. Claude Pro 로그인 그대로 사용한다."""
 
@@ -197,7 +203,7 @@ class Brain:
         cmd = [
             "claude", "-p", text,
             "--output-format", "json",
-            "--append-system-prompt", PERSONA,
+            "--append-system-prompt", system_prompt(),
             "--permission-mode", "acceptEdits",
             "--add-dir", str(DATA),
             "--allowedTools", ALLOWED_TOOLS,
