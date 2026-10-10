@@ -104,6 +104,43 @@ FACE = face.Face()
 SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
 MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00")}
+MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
+
+
+def input_mode():
+    """실제로 쓰는 입력 방식. 음악이 나오는 동안은 노래 소리를 말로 착각하지 않도록 텍스트만."""
+    return "text" if MUSIC.is_set() else MODE["input"]
+
+
+def publish_mode():
+    FACE.mode({**MODE, "input": input_mode(), "music": MUSIC.is_set()})
+
+
+def set_music(on):
+    if on == MUSIC.is_set():
+        return
+    MUSIC.set() if on else MUSIC.clear()
+    log("🎵 음악 재생 중 → 텍스트로만 입력" if on else "🎵 음악 끝 → 원래 입력 방식(%s)" % ("음성" if MODE["input"] == "voice" else "텍스트"))
+    publish_mode()
+
+
+def music_watch():
+    """음악이 끝났는지(플레이어가 닫히거나 멈춤) 확인해서 입력 방식을 되돌린다."""
+    quiet = 0
+    while True:
+        time.sleep(8)
+        if not MUSIC.is_set():
+            quiet = 0
+            continue
+        try:
+            playing = genie.player_state() == "playing"
+        except Exception:  # 사파리를 못 읽으면 다음에 다시
+            continue
+        quiet = 0 if playing else quiet + 1
+        if quiet >= 2:  # 16초 넘게 조용하면 끝난 것으로 봄
+            set_music(False)
+
+
 WAKE_SONGS = [  # 기상 음악 (지니에서 검색할 걸그룹 노래, 매일 다른 곡)
     "아이브 LOVE DIVE", "아이브 해야", "뉴진스 Hype Boy", "뉴진스 Super Shy", "르세라핌 ANTIFRAGILE",
     "에스파 Supernova", "에스파 Whiplash", "트와이스 TT", "트와이스 FANCY", "레드벨벳 빨간 맛", "있지 달라달라",
@@ -193,7 +230,7 @@ def speak(text, then="idle", chat=True):
     """말하면서 캐릭터 입을 소리 크기에 맞춰 움직인다. 끝나면 캐릭터를 `then` 상태로.
     대답 소리를 꺼 두었으면(텍스트 대화용) 화면 대화창에만 보여 준다."""
     print(f"\n🐉 용용이: {text}\n", flush=True)
-    if then == "listening" and MODE["input"] == "text":
+    if then == "listening" and input_mode() == "text":
         then = "idle"
     if chat:
         FACE.chat("yongyong", text)
@@ -374,8 +411,9 @@ def wake_up():
     log(f"🎵 {result}")
     if "재생을 시작" not in result:
         with BUSY, deaf():
-            speak("기상 음악을 틀지 못했어요. " + result.split(" 플레이어 창이 안 뜨면")[0])
+            speak("기상 음악을 틀지 못했어요. " + result.split(" 플레이어 창이 안 뜨")[0])
         return
+    set_music(True)
     for level in (45, 55, 65):  # 1분 30초에 걸쳐 소리를 조금씩 키움
         time.sleep(30)
         genie.volume(level)
@@ -435,7 +473,8 @@ def mode_route(body):
     if "speak" in body:
         MODE["speak"] = bool(body["speak"])
     SETTINGS.write_text(json.dumps(MODE))
-    return {"ok": True, **MODE}
+    publish_mode()
+    return {"ok": True, **MODE, "input": input_mode(), "music": MUSIC.is_set()}
 
 
 def ask_route(body):
@@ -468,6 +507,7 @@ def handle_music(command):
         return True
     if MUSIC_STOP_RE.search(command):
         speak(genie.stop())
+        set_music(False)
         return True
     if not MUSIC_PLAY_RE.search(command) or NOT_MUSIC_RE.search(command):
         return False
@@ -482,7 +522,11 @@ def handle_music(command):
     except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
         result = f"지니를 열지 못했어요: {e}"
     log(f"🎵 {result}")
-    speak(result.split(" 플레이어 창이 안 뜨면")[0])
+    result = result.split(" 플레이어 창이 안 뜨")[0]  # 사파리 설정 안내는 터미널에만
+    if "재생을 시작" in result:
+        set_music(True)
+        result += " 음악이 나오는 동안은 화면 아래 칸에 글자로 말씀해 주세요."
+    speak(result)
     return True
 
 
@@ -501,7 +545,6 @@ def handle_command(command):
     m = MODE_RE.search(command)
     if m and len(command) < 20:
         mode_route({"input": "voice" if m.group(1) in ("음성", "목소리") else "text"})
-        FACE.mode(MODE)
         speak("음성 모드로 바꿨어요. 용용아 하고 불러 주세요." if MODE["input"] == "voice"
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
@@ -609,17 +652,18 @@ def main():
         threading.Thread(target=kmong_watch, daemon=True).start()
         log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
     threading.Thread(target=schedule_loop, daemon=True).start()
+    threading.Thread(target=music_watch, daemon=True).start()
     log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'}")
 
     def on_audio(indata, frames, t, status):
-        if not muted.is_set() and MODE["input"] == "voice":
+        if not muted.is_set() and input_mode() == "voice":
             audio_q.put(indata[:, 0].copy())
 
     with sd.InputStream(device=dev, channels=1, samplerate=rate, dtype="float32",
                         blocksize=int(rate * BLOCK_SEC), callback=on_audio):
         with deaf():
             time.sleep(2 if SHOW_FACE else 0)  # 캐릭터 창이 뜰 시간
-            FACE.mode(MODE)
+            publish_mode()
             if logged_in and MODE["input"] == "text":
                 speak("용용이 준비됐어요. 화면 아래 칸에 입력해 주세요.")
             elif logged_in:

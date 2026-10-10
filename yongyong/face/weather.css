@@ -107,3 +107,7 @@ html.text-mode .subtitle { display: none; }
 }
 .chat-row button { border: 0; border-radius: 12px; padding: 0 16px; background: var(--scale); color: #0d1226; font-weight: 700; cursor: pointer; }
 html.text-mode .stage { width: min(60vw, 230px); }
+.music-note { display: none; margin-bottom: 8px; padding: 8px 12px; border-radius: 12px; font-size: 13px;
+  background: rgba(126, 240, 192, .12); color: var(--glow); }
+html.music-on .music-note { display: block; }
+.modebar button:disabled { opacity: .4; cursor: not-allowed; }

@@ -9,6 +9,9 @@
   function apply(m) {
     mode = { ...mode, ...m };
     document.documentElement.classList.toggle('text-mode', mode.input === 'text');
+    document.documentElement.classList.toggle('music-on', !!mode.music);
+    $('mode-voice').disabled = !!mode.music;
+    $('mode-voice').title = mode.music ? '음악이 나오는 동안은 텍스트로만 입력할 수 있어요' : '';
     $('mode-voice').classList.toggle('on', mode.input === 'voice');
     $('mode-text').classList.toggle('on', mode.input === 'text');
     $('mode-speak').textContent = mode.speak ? '🔊 소리 켬' : '🔇 소리 끔';

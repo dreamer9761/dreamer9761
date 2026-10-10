@@ -148,6 +148,11 @@ def play(query):
     return msg
 
 
+def player_state():
+    """지니 플레이어 상태: playing | paused | nowindow"""
+    return _osa(_JS_IN_TAB, "genie.co.kr/player", _JS_PLAYER_STATE)
+
+
 def stop():
     n = int(_osa(_CLOSE_PLAYERS) or 0)
     return "지니 플레이어를 껐어요." if n else "켜져 있는 지니 플레이어가 없어요."
