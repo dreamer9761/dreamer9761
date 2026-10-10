@@ -242,7 +242,7 @@ _JS_NEXT_PAGE = r"""(() => {
 })()"""
 
 
-def read_pages(url, max_pages=10):
+def read_list_pages(url, max_pages=10):
     """목록 페이지를 열고 '다음 페이지'를 눌러 가며 max_pages 쪽까지 글자를 모은다 (월별 매출 계산용)."""
     import time
     if not url.startswith("http"):
@@ -286,7 +286,7 @@ def _cli(argv):
         final, body = open_and_read(rest[0] if rest else "https://kmong.com/", _JS_LINKS)
         print("[링크 목록] " + final + "\n" + body)
     elif cmd == "pages" and rest:
-        print(read_pages(rest[0], int(rest[1]) if len(rest) > 1 else 10))
+        print(read_list_pages(rest[0], int(rest[1]) if len(rest) > 1 else 10))
     elif cmd == "login" and rest:
         print(login(rest[0]))
     elif cmd == "read" and rest:

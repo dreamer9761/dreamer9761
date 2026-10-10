@@ -10,7 +10,7 @@ import sys
 import time
 
 from kmong import (_CLOSE_WINDOW, _JS_LINKS, _JS_TEXT, _NEW_WINDOW, _RUN_JS, MAX_CHARS, SafariError, _osa, _wait,
-                   read_pages)
+                   read_list_pages)
 
 BASE = "https://hub.sellerdoctorai.com/"
 
@@ -94,7 +94,7 @@ def main(argv):
     elif cmd == "search" and rest:
         print(search(rest[0], rest[1] if len(rest) > 1 else BASE))
     elif cmd == "pages" and rest:
-        print(_note_login(read_pages(_url(rest[0]), int(rest[1]) if len(rest) > 1 else 10)))
+        print(_note_login(read_list_pages(_url(rest[0]), int(rest[1]) if len(rest) > 1 else 10)))
     else:
         print(__doc__)
         return 1
