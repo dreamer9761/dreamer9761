@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """용용이: "용용아" 하고 부르면 듣고, Claude Code 로 생각해서, 말로 대답하는 음성 비서."""
+import base64
 import collections
 import json
 import math
@@ -263,6 +264,8 @@ def speak(text, then="idle", chat=True):
         then = "idle"
     if chat:
         FACE.chat("yongyong", text)
+    if getattr(_local, "voice_reply", False):  # 휴대폰에서 말로 물어봤으면 휴대폰에서 소리로 대답
+        send_voice_to_phone(text)
     if not MODE["speak"] or getattr(_local, "quiet", False):  # 밖(휴대폰·사무실)에서 온 요청이면 집에서 소리 내지 않음
         FACE.show(then if then != "listening" else "idle")
         return
@@ -622,6 +625,45 @@ def mode_route(body):
     return {"ok": True, **MODE, "input": input_mode(), "music": MUSIC.is_set()}
 
 
+TRANSCRIBE_LOCK = threading.Lock()  # 맥 마이크와 휴대폰 음성을 동시에 받아 적지 않도록
+
+
+def send_voice_to_phone(text):
+    """대답을 음성 파일로 만들어 휴대폰 화면에 보낸다 (휴대폰이 재생)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "say.wav"
+        subprocess.run(["say", "-v", VOICE, "-r", "200", "-o", str(wav), "--file-format=WAVE",
+                        "--data-format=LEI16@16000", for_speech(text)], check=False)
+        if wav.exists():
+            FACE.panel("audio", wav=base64.b64encode(wav.read_bytes()).decode())
+
+
+def voice_route(body):
+    """휴대폰에서 누르고 말한 소리(16kHz 16비트 PCM, base64)를 받아 적고 처리한다."""
+    try:
+        pcm = np.frombuffer(base64.b64decode(str(body.get("pcm", ""))), dtype=np.int16)
+    except ValueError:
+        return {"ok": False, "error": "소리를 받지 못했어요."}
+    if len(pcm) < SAMPLE_RATE * 0.3:
+        return {"ok": False, "error": "너무 짧아요. 버튼을 누른 채로 말해 주세요."}
+    audio = (pcm.astype(np.float32) / 32768.0)[: SAMPLE_RATE * 60]
+    with TRANSCRIBE_LOCK:
+        text = transcribe(audio)
+    text = WAKE_RE.sub("", text, count=1).strip() if WAKE_RE.match(text) else text
+    if not text:
+        return {"ok": False, "error": "잘 못 알아들었어요. 다시 말해 주세요."}
+    quiet, reply = bool(body.get("_remote")), bool(body.get("reply", True))
+
+    def run():
+        _local.quiet, _local.voice_reply = quiet, reply
+        with BUSY, deaf():
+            log(f"📱🎤 {text}")
+            FACE.chat("me", text)
+            handle_command(text)
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "text": text}
+
+
 def ask_route(body):
     """화면 대화창에 글자로 입력한 질문."""
     text = str(body.get("text", "")).strip()
@@ -631,7 +673,7 @@ def ask_route(body):
     quiet = bool(body.get("_remote"))
 
     def run():
-        _local.quiet = quiet
+        _local.quiet, _local.voice_reply = quiet, False
         with BUSY, deaf():
             log(("📱 " if quiet else "⌨️ ") + text)
             handle_command(text)
@@ -1008,6 +1050,7 @@ def main():
         FACE.routes["/report"] = report_route
         FACE.routes["/mode"] = mode_route
         FACE.routes["/ask"] = ask_route
+        FACE.routes["/voice"] = voice_route
         FACE.routes["/dashboard"] = dashboard_route
         FACE.routes["/window"] = window_route
         FACE.routes["/draft"] = draft_route
@@ -1058,7 +1101,8 @@ def main():
         awake_until = 0.0
         for audio in utterances(rate):
             with BUSY, deaf():
-                text = transcribe(audio)
+                with TRANSCRIBE_LOCK:
+                    text = transcribe(audio)
                 if not text:
                     continue
                 m = WAKE_RE.search(text)

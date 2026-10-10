@@ -186,3 +186,10 @@ html.remote .chat-log { max-height: 52vh; }
   html.remote .chat { width: 100%; }
   .chat-row textarea { font-size: 16px; }   /* 휴대폰에서 입력할 때 화면이 확대되지 않게 */
 }
+
+/* 휴대폰: 누르고 말하기 */
+.chat-mic { display: none; flex: 0 0 auto; min-width: 56px; border: 0; border-radius: 12px; font-size: 20px; cursor: pointer;
+  background: rgba(255,255,255,.12); color: var(--text); touch-action: none; user-select: none; -webkit-user-select: none; }
+html.remote .chat-mic { display: block; }
+.chat-mic.rec { background: #ff5c7a; color: #fff; font-size: 13px; font-weight: 700; animation: pulse-rec 1s infinite; }
+@keyframes pulse-rec { 50% { opacity: .7; } }

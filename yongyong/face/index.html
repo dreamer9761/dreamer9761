@@ -14,6 +14,7 @@
 <script src="news.js"></script>
 <script src="report.js"></script>
 <script src="chat.js"></script>
+<script src="phonemic.js"></script>
 <script src="dash.js"></script>
 <script src="draft.js"></script>
 <script src="templates.js"></script>
@@ -232,6 +233,7 @@
   <div class="music-note">🎵 음악이 나오는 동안은 글자로 입력해 주세요. 음악이 끝나면 원래대로 돌아가요.</div>
   <div class="chat-log" id="chat-log"></div>
   <div class="chat-row">
+    <button id="chat-mic" class="chat-mic" title="누른 채로 말하기">🎤</button>
     <textarea id="chat-input" placeholder="용용이에게 입력 (Enter: 보내기)"></textarea>
     <button id="chat-send">보내기</button>
   </div>
@@ -459,6 +461,7 @@
       else if (msg.panel === 'blog') window.YongBlog.show();
       else if (msg.panel === 'dash') msg.on ? window.YongDash.show() : window.YongDash.hide();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
+      else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
       else setState(msg);
