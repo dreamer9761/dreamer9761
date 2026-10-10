@@ -70,7 +70,11 @@ ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
         "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "open", "curl",
     ]),
 ]))
-DISALLOWED_TOOLS = "Bash(rm:*),Bash(sudo:*),Bash(git push:*),Bash(git reset:*)"
+DISALLOWED_TOOLS = ",".join([
+    "Bash(rm:*)", "Bash(sudo:*)", "Bash(git push:*)", "Bash(git reset:*)",
+    # 음악은 지니로만 (애플 뮤직 앱이 대신 열리지 않도록)
+    "Bash(open -a Music:*)", "Bash(open -a \"Music\":*)", "Bash(open music:*)", "Bash(open -b com.apple.Music:*)",
+])
 MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.01"))  # 낮출수록 작은 소리에도 반응
 KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "30"))  # 0 이면 자동 감시 끔
 FOLLOW_UP_SEC = 8  # 대답 후 이 시간 안에는 "용용아" 없이 바로 말해도 됨
