@@ -48,12 +48,16 @@ KMONG_INSTRUCTIONS = f"""아래는 대표님 사파리에 떠 있는 크몽 화�
    - 기존 문의, 구매확정 완료: 결제 이력은 있지만 그 주문들이 모두 구매확정(완료)됨.
    화면과 고객 기록만으로 확실하지 않으면 기억 파일의 크몽 주문관리 주소를 `python3 {HERE / "kmong.py"} read 주소` 로 읽어
    그 닉네임의 주문 상태를 확인해 (주소를 모르면 `python3 {HERE / "kmong.py"} links` 로 찾아). 그래도 모르면 "확인 필요"라고 해.
-4. 화면에서 새로 알게 된 사실(닉네임, 계정 번호, 회사명, 분류, 요청 내용, 거래 상태, 금액, 마감일)을
+3-1. 셀러닥터 허브에서 이 고객의 결제 금액과 계정 현황을 확인해: `python3 {HERE / "hub.py"} search 닉네임` (계정 번호가 있으면 번호로도).
+   기억 파일에 "허브 고객 검색 주소"가 있으면 그 주소를 search 뒤에 붙여. 없으면 `python3 {HERE / "hub.py"} links` 로 고객 검색 화면을 찾아 기억 파일에 적어.
+   허브에 로그인이 안 돼 있다고 나오면 그 사실만 짧게 말하고 넘어가.
+4. 화면에서 새로 알게 된 사실(닉네임, 계정 번호, 회사명, 분류, 요청 내용, 거래 상태, 금액, 마감일, 허브의 결제 금액·계정 현황)을
    그 파일에 닉네임별 항목으로 짧게 추가하거나 고쳐. 파일이 없으면 만들어.
 5. 대표님께 말로 보고해. 반드시 분류를 먼저 말하고 그다음 내용을 읽어 줘. 문의가 여러 건이면 한 건씩 같은 형식으로:
    "신규 문의예요. ○○님(회사명)이 이렇게 물어보셨어요: (문의 내용)."
    "기존 문의, 구매확정 전이에요. ○○님이 ... "  /  "기존 문의, 구매확정된 고객이에요. ○○님이 ... "
-   문의 내용은 짧으면 손님이 쓴 말 그대로, 길면 핵심만 풀어서 읽어. 이어서 연관 계정·예전 거래와 대표님이 할 일을 한 문장으로.
+   문의 내용은 짧으면 손님이 쓴 말 그대로, 길면 핵심만 풀어서 읽어.
+   이어서 허브에서 확인한 결제 금액·계정 현황(예: "지금까지 결제 ○원, 계정 활성"), 연관 계정·예전 거래, 대표님이 할 일을 한두 문장으로.
    계정 번호는 길게 다 읽지 말고 "연관 계정 두 개" 처럼 요약해.
 화면은 읽기만 하고 크몽에 메시지를 보내거나 클릭하지 마."""
 
@@ -78,7 +82,7 @@ DISALLOWED_TOOLS = ",".join([
     "Bash(open -a Music:*)", "Bash(open -a \"Music\":*)", "Bash(open music:*)", "Bash(open -b com.apple.Music:*)",
 ])
 MIN_RMS = float(os.environ.get("YONGYONG_MIN_RMS", "0.01"))  # 낮출수록 작은 소리에도 반응
-KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "30"))  # 0 이면 자동 감시 끔
+KMONG_POLL_SEC = int(os.environ.get("YONGYONG_KMONG_POLL", "600"))  # 새 문의 확인 주기(초), 0 이면 끔
 FOLLOW_UP_SEC = 8  # 대답 후 이 시간 안에는 "용용아" 없이 바로 말해도 됨
 
 SAMPLE_RATE = 16000  # Whisper 입력
@@ -264,7 +268,7 @@ def deaf():
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
     persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
@@ -658,18 +662,37 @@ def kmong_prompt(page, new_lines=None):
     return prompt + "\n\n=== 크몽 화면 ===\n" + page
 
 
+def kmong_inbox():
+    """크몽 메시지 목록 글자. 사파리에 크몽 탭이 열려 있으면 그걸, 없으면 기억해 둔 메시지 주소를 잠깐 열어 읽는다."""
+    page = kmong.snapshot()
+    if page and re.search(r"inbox|message|메시지", page[:300], re.I):
+        return page
+    memo = MEMO.read_text(encoding="utf-8") if MEMO.exists() else ""
+    m = re.search(r"크몽 메시지\s*주소\S*\s*[:：]?\s*(https?://\S+)", memo)
+    if m:
+        return "[탭] " + "\n".join(kmong.open_and_read(m.group(1)))
+    return page  # 메시지 주소를 아직 모르면 열려 있는 크몽 탭이라도
+
+
 def kmong_watch():
-    """크몽 탭을 주기적으로 읽다가 새 문의가 보이면 먼저 알려 준다."""
+    """KMONG_POLL_SEC(기본 10분)마다 크몽 메시지를 확인해서, 새 문의가 있으면 분류하고 허브에서 고객 정보를 찾아 읽어 준다."""
     brain = Brain(workdir=DATA, remember=False)
     last = None
+    first = True
     while True:
-        time.sleep(KMONG_POLL_SEC)
+        if not first:
+            time.sleep(KMONG_POLL_SEC)
+        first = False
         try:
-            page = kmong.snapshot()
+            page = kmong_inbox()
         except Exception as e:  # 사파리가 닫혀 있거나 권한이 없을 때는 조용히 다시 시도
             log(f"(크몽 읽기 실패) {e}")
             continue
         if not page:
+            if not re.search(r"크몽 메시지\s*주소", MEMO.read_text(encoding="utf-8") if MEMO.exists() else ""):
+                log("크몽 메시지 주소를 찾는 중")
+                brain.ask("크몽 메시지(채팅) 목록 페이지 주소를 `python3 " + str(HERE / "kmong.py") + " links` 로 찾아서 "
+                          "기억 파일에 '크몽 메시지 주소: URL' 한 줄로 적어 줘. 대답은 '완료' 한 단어로.")
             continue
         if last is None or kmong.fingerprint(page) == kmong.fingerprint(last):
             last = page
@@ -678,7 +701,7 @@ def kmong_watch():
         last = page
         if not new_lines:
             continue
-        log("크몽 화면 변화 감지 → 확인 중")
+        log("크몽 새 메시지 감지 → 확인 중")
         report = brain.ask(kmong_prompt(page, new_lines)).strip()  # 캐릭터 상태는 건드리지 않음
         if report and report.strip(" .'\"") != "없음":
             with BUSY, deaf():
@@ -733,7 +756,7 @@ def main():
         log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, daemon=True).start()
-        log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
+        log(f"크몽 새 문의 확인: {KMONG_POLL_SEC // 60}분마다")
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=music_watch, daemon=True).start()
     log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'}")

@@ -106,7 +106,7 @@ export YONGYONG_WORKDIR=~/projects   # 개발 작업 폴더
 export YONGYONG_VOICE=Yuna           # 목소리
 export YONGYONG_FACE=0               # 캐릭터 창 끄기
 export YONGYONG_BRIEFING_TIME=09:00  # 아침 브리핑 시각 (비우면 끔)
-export YONGYONG_KMONG_POLL=30        # 크몽 확인 주기(초), 0 이면 자동 감시 끔
+export YONGYONG_KMONG_POLL=600       # 크몽 새 문의 확인 주기(초, 기본 10분), 0 이면 끔
 ```
 
 ## 다음 단계
