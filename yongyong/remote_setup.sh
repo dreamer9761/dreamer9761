@@ -3,8 +3,13 @@
 #  1) 접속용 아이디·비밀번호 정하기  2) Tailscale 로 맥미니 용용이 화면을 내 기기들에만 https 로 열기
 set -euo pipefail
 cd "$(dirname "$0")"
-echo "==> 1. 원격 접속용 아이디·비밀번호를 정해 주세요"
-.venv/bin/python remote.py
+if [[ -f data/remote.json ]]; then
+  read -rp "==> 1. 원격 아이디·비밀번호가 이미 있어요. 새로 정할까요? (y/N) " AGAIN
+  [[ "$AGAIN" == [yY]* ]] && .venv/bin/python remote.py
+else
+  echo "==> 1. 원격 접속용 아이디·비밀번호를 정해 주세요"
+  .venv/bin/python remote.py
+fi
 
 TS=""
 for c in tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
@@ -17,6 +22,7 @@ if [[ -z "$TS" ]]; then
   exit 0
 fi
 echo "==> 2. Tailscale 로 용용이 화면 열기 (내 Tailscale 기기에서만 접속 가능)"
+echo "    (처음이면 HTTPS 를 켜는 링크가 나와요. 그 링크를 열어 허용한 뒤 기다리면 이어서 진행돼요)"
 "$TS" serve --bg 8765
 NAME=$("$TS" status --json | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')
 echo
