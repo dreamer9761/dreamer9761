@@ -15,7 +15,7 @@
     c <= 82 ? ['🌦️', '소나기'] : c <= 86 ? ['🌨️', '눈 소나기'] : ['⛈️', '뇌우'];
   const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
   const $ = (id) => document.getElementById(id);
-  let map, closeTimer;
+  let closeTimer;
 
   async function getJSON(url) {
     const r = await fetch(url);
@@ -65,37 +65,48 @@
     }).join('');
   }
 
+  // 지도: 미리 만들어 둔 한반도 윤곽 위에 도시별 하늘 상태·기온 표시 (외부 지도 서비스·API 키 불필요)
+  function project(lat, lon) {
+    const M = window.KOREA_MAP, B = M.B;
+    const my = (a) => Math.log(Math.tan(Math.PI / 4 + a * Math.PI / 360));
+    const k = M.W / ((B.e - B.w) * Math.PI / 180);
+    return [((lon - B.w) * Math.PI / 180) * k, (my(B.n) - my(lat)) * k];
+  }
+
   async function drawMap(loc, here) {
-    if (!window.L) { $('wx-map').textContent = '지도를 불러오지 못했어요 (인터넷 연결 확인)'; return; }
-    if (!map) {
-      map = L.map('wx-map', { zoomControl: false, attributionControl: true });
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap © CARTO · 레이더 RainViewer', maxZoom: 10,
-      }).addTo(map);
-    }
-    map.eachLayer((l) => { if (!(l instanceof L.TileLayer) || l.options.radar) map.removeLayer(l); });
-    map.setView([loc.lat, loc.lon], 7);
-    setTimeout(() => map.invalidateSize(), 50);
-
-    // 비구름 레이더 (가장 최근 관측)
-    try {
-      const rv = await getJSON('https://api.rainviewer.com/public/weather-maps.json');
-      const last = rv.radar.past[rv.radar.past.length - 1];
-      L.tileLayer(`${rv.host}${last.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.7, radar: true, maxNativeZoom: 7, maxZoom: 10 }).addTo(map);
-    } catch (e) { /* 레이더 없이 진행 */ }
-
-    // 주변 도시 날씨 핀
-    const crowded = ['수원', '천안', '세종', '서귀포'];  // 지도에서 겹치는 도시는 생략
-    const others = Object.entries(CITIES).filter(([n]) => n !== loc.name && !crowded.includes(n));
-    const pin = (lat, lon, html, main) =>
-      L.marker([lat, lon], { icon: L.divIcon({ className: '', html: `<div class="wx-pin ${main ? 'main' : ''}">${html}</div>`, iconSize: [0, 0] }), interactive: false }).addTo(map);
+    const M = window.KOREA_MAP, box = $('wx-map');
+    if (!M) { box.textContent = '지도 데이터를 불러오지 못했어요.'; return; }
+    const pin = (lat, lon, icon, temp, name, main) => {
+      const [x, y] = project(lat, lon);
+      return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})" class="${main ? 'main' : ''}">
+        ${main ? '<circle class="pulse" r="26" cy="4"/>' : ''}
+        <text class="i" y="${main ? -8 : -4}">${icon}</text><text class="t" y="${main ? 20 : 18}">${temp}°</text><text class="n" y="${main ? 37 : 34}">${name}</text></g>`;
+    };
+    const [hx, hy] = project(loc.lat, loc.lon);
+    const inside = hx >= 0 && hx <= M.W && hy >= 0 && hy <= M.H;
+    // 선택한 도시를 먼저 놓고, 이미 놓인 핀과 너무 가까운 도시는 건너뛰어 글자가 겹치지 않게
+    const placed = inside ? [[hx, hy]] : [];
+    const roomFor = (lat, lon) => {
+      const [x, y] = project(lat, lon);
+      if (placed.some(([px, py]) => Math.abs(px - x) < 46 && Math.abs(py - y) < 52)) return false;
+      placed.push([x, y]);
+      return true;
+    };
+    let pins = '';
+    const others = Object.entries(CITIES).filter(([n, [la, lo]]) => n !== loc.name && roomFor(la, lo));
     try {
       const q = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${others.map((o) => o[1][0]).join(',')}` +
         `&longitude=${others.map((o) => o[1][1]).join(',')}&current=temperature_2m,weather_code&timezone=Asia%2FSeoul`);
-      (Array.isArray(q) ? q : [q]).forEach((r, i) => pin(others[i][1][0], others[i][1][1],
-        `<span class="i">${WMO(r.current.weather_code)[0]}</span><span class="t">${Math.round(r.current.temperature_2m)}°</span><span class="n">${others[i][0]}</span>`));
+      (Array.isArray(q) ? q : [q]).forEach((r, i) => {
+        pins += pin(others[i][1][0], others[i][1][1], WMO(r.current.weather_code)[0], Math.round(r.current.temperature_2m), others[i][0]);
+      });
     } catch (e) { /* 주변 도시는 생략 */ }
-    pin(loc.lat, loc.lon, `<span class="i">${WMO(here.weather_code)[0]}</span><span class="t">${Math.round(here.temperature_2m)}°</span><span class="n">${loc.name}</span>`, true);
+    if (inside) pins += pin(loc.lat, loc.lon, WMO(here.weather_code)[0], Math.round(here.temperature_2m), loc.name, true);
+    box.innerHTML = `<svg viewBox="0 0 ${M.W} ${M.H}" preserveAspectRatio="xMidYMid meet" class="wx-svg">
+      <defs><clipPath id="wx-clip"><rect width="${M.W}" height="${M.H}"/></clipPath></defs>
+      <g clip-path="url(#wx-clip)"><rect width="${M.W}" height="${M.H}" class="sea"/>
+      <path d="${M.other}" class="land other"/><path d="${M.kor}" class="land kor"/></g>
+      ${pins}</svg>${inside ? '' : `<div class="wx-note">${loc.name}은(는) 지도 범위 밖이에요.</div>`}`;
   }
 
   function close() {

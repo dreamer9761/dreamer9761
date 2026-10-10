@@ -23,16 +23,25 @@ html.has-weather .subtitle { max-width: 280px; }
 .wx-now .desc { color: var(--muted); font-size: 14px; line-height: 1.6; }
 .wx-now .desc b { color: var(--text); font-size: 16px; }
 
-#wx-map { height: 300px; border-radius: 14px; overflow: hidden; background: #0b1020; }
+#wx-map { height: 440px; border-radius: 14px; overflow: hidden; background: #0e1a38; }
 .wx-legend { font-size: 12px; color: var(--muted); margin: 6px 2px 0; }
 
-.wx-pin { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -50%); white-space: nowrap; pointer-events: none; }
-.wx-pin .i { font-size: 22px; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
-.wx-pin .t { font: 700 13px -apple-system, sans-serif; color: #fff; text-shadow: 0 1px 3px #000; }
-.wx-pin .n { font: 11px -apple-system, "Apple SD Gothic Neo", sans-serif; color: #dfe6ff; text-shadow: 0 1px 3px #000; }
-.wx-pin.main .i { font-size: 32px; }
-.wx-pin.main .t { font-size: 16px; color: var(--glow); }
-
+.wx-svg { width: 100%; height: 100%; display: block; }
+.wx-svg .sea { fill: #0e1a38; }
+.wx-svg .land { stroke-linejoin: round; }
+.wx-svg .land.kor { fill: #2c4a4a; stroke: #6fbfa0; stroke-width: 1.2; }
+.wx-svg .land.other { fill: #1d2a40; stroke: #33476a; stroke-width: .8; }
+.wx-svg text { text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 3px; }
+.wx-svg .i { font-size: 27px; stroke: none; }
+.wx-svg .t { font: 700 16px -apple-system, sans-serif; fill: #fff; }
+.wx-svg .n { font: 13px -apple-system, "Apple SD Gothic Neo", sans-serif; fill: #cfd8f5; }
+.wx-svg .main .i { font-size: 40px; }
+.wx-svg .main .t { font-size: 20px; fill: var(--glow); }
+.wx-svg .main .n { font-weight: 700; fill: #fff; }
+.wx-svg .main .n { font-size: 15px; }
+.wx-svg .pulse { fill: none; stroke: var(--glow); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: wxpulse 1.8s ease-out infinite; }
+@keyframes wxpulse { from { opacity: .9; transform: scale(.6); } to { opacity: 0; transform: scale(1.8); } }
+.wx-note { color: var(--muted); font-size: 13px; padding: 8px; }
 .wx-title { margin: 16px 2px 8px; font-size: 14px; color: var(--muted); }
 .wx-row { display: grid; gap: 6px; }
 .wx-hours { grid-template-columns: repeat(8, 1fr); }
