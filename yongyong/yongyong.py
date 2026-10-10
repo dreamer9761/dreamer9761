@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import face
+import genie
 import kmong
 import news
 import mlx_whisper
@@ -67,7 +68,7 @@ ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
     *(f"Bash({c}:*)" for c in [
         "ls", "cat", "head", "tail", "wc", "pwd", "date", "cal", "mkdir", "cp", "mv", "touch", "find", "grep",
         "git status", "git diff", "git log", "git add", "git commit", "git checkout", "git branch", "git clone",
-        "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "open", "curl",
+        "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "curl",
     ]),
 ]))
 DISALLOWED_TOOLS = ",".join([
@@ -231,16 +232,18 @@ class Brain:
         self.remember = remember
         self.session_id = None
 
-    def ask(self, text):
+    def ask(self, text, tools=True):
         cmd = [
             "claude", "-p", text,
             "--output-format", "json",
             "--append-system-prompt", system_prompt(),
             "--permission-mode", "acceptEdits",
             "--add-dir", str(DATA),
-            "--allowedTools", ALLOWED_TOOLS,
-            "--disallowedTools", DISALLOWED_TOOLS,
         ]
+        if tools:
+            cmd += ["--allowedTools", ALLOWED_TOOLS, "--disallowedTools", DISALLOWED_TOOLS]
+        else:  # 생각만 하고 아무 도구도 쓰지 않음
+            cmd += ["--disallowedTools", "Bash,WebSearch,WebFetch,Read,Edit,Write,Glob,Grep,Task,TodoWrite"]
         if self.remember and self.session_id:
             cmd += ["--resume", self.session_id]
         try:
@@ -384,6 +387,38 @@ def ask_route(body):
     return {"ok": True}
 
 
+# 음악은 Claude 에게 맡기지 않고 여기서 바로 지니로 튼다 (다른 앱이 열리지 않도록)
+MUSIC_STOP_RE = re.compile(r"(음악|노래|지니|플레이어)\S*\s*(좀\s*)?(꺼|멈춰|정지|그만|중지)")
+MUSIC_PLAY_RE = re.compile(r"틀어|들려|(노래|음악|곡).{0,10}재생|재생.{0,6}(노래|음악|곡)")
+VOLUME_RE = re.compile(r"(소리|볼륨|음량)\D{0,6}(\d{1,3})\s*(으로|로|%|퍼센트)")
+
+
+def handle_music(command):
+    """음악 요청이면 처리하고 True. 아니면 False."""
+    m = VOLUME_RE.search(command)
+    if m:
+        speak(genie.volume(m.group(2)))
+        return True
+    if MUSIC_STOP_RE.search(command):
+        speak(genie.stop())
+        return True
+    if not MUSIC_PLAY_RE.search(command):
+        return False
+    speak("지니에서 찾아볼게요.", then="thinking", chat=False)
+    query = Brain(workdir=DATA, remember=False).ask(
+        "다음 요청을 지니뮤직에서 검색할 검색어 한 줄로만 바꿔 줘. 다른 말은 쓰지 마. "
+        "곡이나 가수가 있으면 '가수 곡제목', 막연하면 어울리는 실제 곡 하나를 '가수 곡제목'으로.\n요청: " + command,
+        tools=False).strip().strip("\"'「」").splitlines()[0][:60]
+    log(f"🎵 지니 검색: {query}")
+    try:
+        result = genie.play(query)
+    except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
+        result = f"지니를 열지 못했어요: {e}"
+    log(f"🎵 {result}")
+    speak(result.split(" 플레이어 창이 안 뜨면")[0])
+    return True
+
+
 MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
 
 
@@ -404,6 +439,8 @@ def handle_command(command):
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
 
+    if handle_music(command):
+        return
     speak("네, 잠시만요.", then="thinking", chat=False)
     if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
         try:
