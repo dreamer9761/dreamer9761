@@ -6,6 +6,7 @@ import math
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -64,6 +65,8 @@ RESET_RE = re.compile(r"새\s?대화|처음부터")
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
 FACE = face.Face()
+BUSY = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
+ENV_FILE = HERE / ".env"
 audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
 muted = threading.Event()
 
@@ -196,9 +199,60 @@ class Brain:
             return "죄송해요, 처리하다가 문제가 생겼어요. 터미널을 확인해 주세요."
         self.session_id = data.get("session_id", self.session_id)
         result = data.get("result") or "처리했어요."
-        if "Not logged in" in result or "/login" in result:
-            return "Claude 로그인이 필요해요. 터미널에서 용용이 폴더의 login 스크립트를 실행해 주세요."
+        if needs_login(result):
+            FACE.show("login")
+            return "Claude 로그인이 필요해요. 화면의 로그인 버튼을 눌러 주세요."
         return result
+
+
+def needs_login(output):
+    return "Not logged in" in output or "Please run /login" in output or "Invalid API key" in output
+
+
+def check_login():
+    """Claude Code 가 로그인돼 있는지 아주 짧은 질문으로 확인."""
+    try:
+        p = subprocess.run(["claude", "-p", "ok", "--max-turns", "1"], cwd=DATA,
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return True  # 확인 자체가 안 되면 일단 진행하고, 실제 질문 때 다시 판단
+    return not needs_login(p.stdout + p.stderr)
+
+
+def login_start(_body):
+    """터미널 창을 열어 `claude setup-token` 실행 → 브라우저에서 승인하면 토큰이 나온다."""
+    claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+    subprocess.run(["osascript",
+                    "-e", 'tell application "Terminal" to activate',
+                    "-e", f'tell application "Terminal" to do script "\\"{claude}\\" setup-token"'],
+                   check=False)
+    return {"ok": True}
+
+
+def login_token(body):
+    """로그인 화면에 붙여넣은 토큰을 저장하고 바로 적용."""
+    token = re.sub(r"\s+", "", str(body.get("token", "")))
+    if not token.startswith("sk-ant-"):
+        return {"ok": False, "error": "sk-ant- 로 시작하는 토큰을 붙여넣어 주세요."}
+    old = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    if not check_login():
+        if old is None:
+            os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN")
+        else:
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = old
+        return {"ok": False, "error": "이 토큰으로 로그인되지 않았어요. 다시 시도해 주세요."}
+    lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
+    lines = [ln for ln in lines if not ln.startswith("export CLAUDE_CODE_OAUTH_TOKEN=")]
+    lines.append(f'export CLAUDE_CODE_OAUTH_TOKEN="{token}"')
+    ENV_FILE.write_text("\n".join(lines) + "\n")
+    ENV_FILE.chmod(0o600)
+
+    def greet():
+        with BUSY, deaf():
+            speak("로그인됐어요! 이제 용용아 하고 불러 주세요.")
+    threading.Thread(target=greet, daemon=True).start()
+    return {"ok": True}
 
 
 def kmong_prompt(page, new_lines=None):
@@ -210,7 +264,7 @@ def kmong_prompt(page, new_lines=None):
     return prompt + "\n\n=== 크몽 화면 ===\n" + page
 
 
-def kmong_watch(busy):
+def kmong_watch():
     """크몽 탭을 주기적으로 읽다가 새 문의가 보이면 먼저 알려 준다."""
     brain = Brain(workdir=DATA, remember=False)
     last = None
@@ -233,7 +287,7 @@ def kmong_watch(busy):
         log("크몽 화면 변화 감지 → 확인 중")
         report = brain.ask(kmong_prompt(page, new_lines)).strip()  # 캐릭터 상태는 건드리지 않음
         if report and report.strip(" .'\"") != "없음":
-            with busy, deaf():
+            with BUSY, deaf():
                 speak("크몽 알림이에요. " + report)
 
 
@@ -264,10 +318,15 @@ def main():
 
     brain = Brain()
     if SHOW_FACE:
+        FACE.routes["/login/start"] = login_start
+        FACE.routes["/login/token"] = login_token
         FACE.start()
-    busy = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
+    log("Claude 로그인 확인 중...")
+    logged_in = check_login()
+    if not logged_in:
+        log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:
-        threading.Thread(target=kmong_watch, args=(busy,), daemon=True).start()
+        threading.Thread(target=kmong_watch, daemon=True).start()
         log(f"크몽 감시 시작 ({KMONG_POLL_SEC}초마다 사파리 크몽 탭 확인)")
 
     def on_audio(indata, frames, t, status):
@@ -278,10 +337,13 @@ def main():
                         blocksize=int(rate * BLOCK_SEC), callback=on_audio):
         with deaf():
             time.sleep(2 if SHOW_FACE else 0)  # 캐릭터 창이 뜰 시간
-            speak("용용이 준비됐어요. 용용아 하고 불러 주세요.")
+            if logged_in:
+                speak("용용이 준비됐어요. 용용아 하고 불러 주세요.")
+            else:
+                speak("Claude 계정 연결이 필요해요. 화면의 로그인 버튼을 눌러 주세요.", then="login")
         awake_until = 0.0
         for audio in utterances(rate):
-            with busy, deaf():
+            with BUSY, deaf():
                 text = transcribe(audio)
                 if not text:
                     continue

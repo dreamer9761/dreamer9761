@@ -20,9 +20,10 @@ class Face:
         self._clients: list[queue.Queue] = []
         self._lock = threading.Lock()
         self._last = json.dumps({"state": "idle"})
+        self.routes = {}  # POST 경로 → 함수(dict) -> dict
 
     def show(self, state, **extra):
-        """state: idle | listening | thinking | speaking"""
+        """state: idle | listening | thinking | speaking | login"""
         msg = json.dumps({"state": state, **extra}, ensure_ascii=False)
         with self._lock:
             self._last = msg
@@ -45,6 +46,25 @@ class Face:
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+
+            def do_POST(self):
+                # 다른 웹사이트가 몰래 요청하지 못하도록 자체 헤더를 요구 (브라우저가 교차 출처 요청을 막음)
+                route = face.routes.get(self.path)
+                if route is None or self.headers.get("X-Yongyong") != "1":
+                    self.send_error(403)
+                    return
+                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                    result = route(body)
+                except Exception as e:  # 화면에 오류를 보여 주기 위해
+                    result = {"ok": False, "error": str(e)}
+                data = json.dumps(result, ensure_ascii=False).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
 
             def _events(self):
                 self.send_response(200)
@@ -75,7 +95,7 @@ class Face:
             if Path("/Applications/Google Chrome.app").exists():
                 # 주소창 없는 깔끔한 창
                 subprocess.Popen(["open", "-na", "Google Chrome", "--args", f"--app={url}",
-                                  "--window-size=460,620"])
+                                  "--window-size=460,760"])
             else:
                 subprocess.Popen(["open", url])
 

@@ -14,9 +14,11 @@ AI(Claude Code), 음성인식(Whisper), 캐릭터까지 한 번에 설치하고 
 
 ## Claude 로그인 (처음 한 번)
 
-```bash
-~/dreamer9761/yongyong/login.sh
-```
+용용이를 켰을 때 Claude 계정이 연결돼 있지 않으면 캐릭터 창에 **로그인 화면**이 나옵니다.
+1. **로그인 시작** → 터미널과 브라우저가 열림 → Claude 계정으로 로그인 후 **Authorize**
+2. 터미널에 나온 `sk-ant-oat01-…` 토큰을 복사해서 캐릭터 창 칸에 붙여넣고 **연결하기**
+
+터미널로 하고 싶으면 `~/dreamer9761/yongyong/login.sh` 도 같은 일을 합니다.
 
 브라우저에서 Claude Pro 계정으로 승인 → 터미널에 나온 `sk-ant-oat01-…` 토큰을 붙여넣으면 `yongyong/.env` 에 저장됩니다(이 맥에만 저장, git 에 안 올라감).
 용용이가 "Not logged in" 또는 "로그인이 필요해요" 라고 하면 이걸 다시 실행하세요.
