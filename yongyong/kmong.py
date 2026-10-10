@@ -1,6 +1,7 @@
 """사파리에 띄워 둔 크몽 상담창을 읽는다 (화면에 보이는 글자를 읽기만 하고, 클릭·전송은 하지 않음)."""
 import difflib
 import os
+from pathlib import Path
 import re
 import subprocess
 import tempfile
@@ -308,20 +309,57 @@ _JS_CHAT_TEXT = r"""(() => {
   const box = document.querySelector('[data-yongyong-chat]');
   return box ? box.innerText : document.body.innerText;
 })()"""
-_JS_TEMPLATES_OPEN = r"""(() => {
-  const el = Array.from(document.querySelectorAll('button, a, [role=button], span')).find(e =>
-    /자주\s*쓰는\s*문구|자주쓰는문구|빠른\s*답변|템플릿/.test((e.innerText || e.title || e.getAttribute('aria-label') || '').trim()));
-  if (!el) return 'notfound';
-  window.__yyBefore = document.body.innerText;
-  (el.closest('button, a, [role=button]') || el).click();
-  return 'opened';
-})()"""
-_JS_TEMPLATES_READ = r"""(() => {
-  const before = new Set((window.__yyBefore || '').split('\n'));
-  const added = document.body.innerText.split('\n').filter(l => l.trim() && !before.has(l));
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-  return added.join('\n');
-})()"""
+# '자주 쓰는 문구' 창: 제목 목록 → 각 문구의 연필(수정) 버튼으로 본문을 열어 읽고, 저장하지 않고 닫는다.
+# 휴지통(삭제)·저장·전송 버튼은 절대 누르지 않는다.
+_JS_TPL = r"""((cmd, idx) => {
+  const vis = (e) => e && e.offsetParent !== null;
+  const txt = (e) => (e.innerText || e.value || '').trim();
+  const clickable = () => Array.from(document.querySelectorAll('button, a, [role=button]')).filter(vis);
+  const addBtn = clickable().find(e => /문구\s*추가/.test(txt(e)));
+  // 목록 창: '문구 추가하기' 버튼을 품은 가장 가까운 상자 중 제목 '자주 쓰는 문구' 가 있는 것
+  let modal = addBtn;
+  while (modal && !(/자주\s*쓰는\s*문구/.test(modal.innerText || '') && modal.querySelectorAll('svg').length >= 4)) modal = modal.parentElement;
+  const rows = () => {
+    if (!modal) return [];
+    const icons = Array.from(modal.querySelectorAll('button, [role=button], a')).filter(e => vis(e) && !txt(e) && e.querySelector('svg, img, i'));
+    const out = [];
+    for (const b of icons) {
+      let row = b.parentElement;
+      while (row && row !== modal && !(row.innerText || '').replace(/^\s*\d+\s*/, '').trim()) row = row.parentElement;
+      if (row && row !== modal && !out.includes(row)) out.push(row);
+    }
+    return out.map(r => ({ row: r, title: (r.innerText || '').replace(/^\s*\d+\s*/, '').split('\n').map(s => s.trim()).filter(Boolean)[0] || '',
+                          icons: Array.from(r.querySelectorAll('button, [role=button], a')).filter(e => vis(e) && !txt(e) && e.querySelector('svg, img, i')) }));
+  };
+  if (cmd === 'open') {
+    if (modal) return 'already';
+    const b = clickable().find(e => /^자주\s*쓰는\s*문구$/.test(txt(e)));
+    if (!b) return 'notfound';
+    b.click(); return 'opened';
+  }
+  if (cmd === 'list') return JSON.stringify(rows().map(r => r.title));
+  if (cmd === 'edit') {
+    const r = rows()[idx];
+    if (!r || r.icons.length !== 2) return 'unsure';          // 연필·휴지통 두 개가 아니면 손대지 않음
+    window.__yyEditBefore = document.body.innerText.length;
+    r.icons[0].click();                                          // 왼쪽 = 연필(수정)
+    return 'editing:' + r.title;
+  }
+  if (cmd === 'read') {
+    if (/삭제\s*하시겠|삭제할까요|정말\s*삭제/.test(document.body.innerText)) return 'DANGER';
+    const fields = Array.from(document.querySelectorAll('textarea, input[type=text], input:not([type])')).filter(e => vis(e) && e.value && e.value.length > 1);
+    return JSON.stringify(fields.map(f => f.value));
+  }
+  if (cmd === 'cancel') {
+    const b = clickable().reverse().find(e => /^(취소|닫기|아니요|아니오)$/.test(txt(e)));
+    if (b) { b.click(); return 'closed'; }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    return 'escaped';
+  }
+  return 'bad';
+})(%s, %d)"""
+
+
 _JS_INSERT = r"""((text) => {
   const vis = (e) => e.offsetParent !== null && !e.disabled && !e.readOnly;
   const box = Array.from(document.querySelectorAll('textarea, [contenteditable=true]')).filter(vis)
@@ -359,13 +397,43 @@ def read_chat():
     return _chat_js(_JS_CHAT_TEXT)[-MAX_CHARS:]
 
 
-def read_templates():
-    """대화창의 '자주 쓰는 문구' 목록을 열어 읽고 닫는다 (보내지 않음)."""
+def _tpl(cmd, idx=0):
+    import json
+    return _chat_js(_JS_TPL % (json.dumps(cmd), idx))
+
+
+def read_templates(save_to=None):
+    """크몽 '자주 쓰는 문구'의 제목과 본문을 모두 읽는다. 각 문구는 수정 창으로 열어 읽고 저장하지 않고 닫는다."""
+    import json
     import time
-    if _chat_js(_JS_TEMPLATES_OPEN) == "notfound":
-        return ""
+    if _tpl("open") == "notfound":
+        return "크몽 대화창에서 '자주 쓰는 문구' 버튼을 찾지 못했어요. 상담 대화를 하나 열어 주세요."
     time.sleep(1.5)
-    return _chat_js(_JS_TEMPLATES_READ)
+    titles = json.loads(_tpl("list") or "[]")
+    if not titles:
+        return "자주 쓰는 문구 목록을 읽지 못했어요."
+    out = []
+    for i, title in enumerate(titles):
+        body = ""
+        if _tpl("edit", i).startswith("editing"):
+            time.sleep(1.2)
+            got = _tpl("read")
+            if got == "DANGER":  # 혹시 삭제 확인 창이면 바로 취소하고 멈춤
+                _tpl("cancel")
+                out.append("### %s\n(본문을 읽다가 멈췄어요)" % title)
+                break
+            values = [v for v in json.loads(got or "[]") if v.strip() != title.strip()]
+            body = max(values, key=len) if values else ""
+            _tpl("cancel")
+            time.sleep(1)
+            if _tpl("open") == "opened":  # 수정 창을 닫으며 목록도 닫혔으면 다시 열기
+                time.sleep(1.2)
+        out.append("### %d. %s\n%s" % (i + 1, title, body or "(본문을 읽지 못했어요)"))
+    _tpl("cancel")  # 목록 창 닫기
+    text = "# 크몽 자주 쓰는 문구 (%s 읽음)\n\n" % time.strftime("%Y-%m-%d %H:%M") + "\n\n".join(out) + "\n"
+    if save_to:
+        Path(save_to).write_text(text, encoding="utf-8")
+    return text
 
 
 def insert_draft(text):
@@ -396,7 +464,7 @@ def _cli(argv):
     elif cmd == "chat":
         print("[대화 전체]\n" + read_chat())
     elif cmd == "templates":
-        print(read_templates() or "자주 쓰는 문구 버튼을 찾지 못했어요.")
+        print(read_templates(Path(__file__).resolve().parent / "data" / "kmong_templates.md"))
     elif cmd == "login" and rest:
         print(login(rest[0]))
     elif cmd == "read" and rest:

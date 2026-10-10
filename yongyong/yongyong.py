@@ -633,6 +633,24 @@ def play_youtube(command, n):
     return True
 
 
+TEMPLATE_RE = re.compile(r"자주\s*쓰는\s*문구.{0,10}(가져|읽어|불러|업데이트|새로|저장)")
+
+
+def fetch_templates():
+    speak("크몽 자주 쓰는 문구를 하나씩 열어서 읽어 올게요. 끝날 때까지 크몽 화면은 건드리지 말아 주세요.", then="thinking")
+    try:
+        text = kmong.read_templates(DATA / "kmong_templates.md")
+    except kmong.SafariError as e:
+        speak(str(e))
+        return
+    n = text.count("\n### ")
+    if n:
+        log(f"자주 쓰는 문구 {n}개 저장 → {DATA / 'kmong_templates.md'}")
+        speak(f"자주 쓰는 문구 {n}개를 저장했어요. 이제 상담 초안에 참고할게요.")
+    else:
+        speak(text)
+
+
 MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
 
 
@@ -652,6 +670,9 @@ def handle_command(command):
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
 
+    if TEMPLATE_RE.search(command):
+        fetch_templates()
+        return
     if handle_alarm(command) or handle_music(command):
         return
     speak("네, 잠시만요.", then="thinking", chat=False)
