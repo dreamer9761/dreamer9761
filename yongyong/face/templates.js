@@ -8,11 +8,11 @@
 
   function close() {
     $('tpl').hidden = true;
-    if (['weather', 'news', 'report', 'draft'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
+    if (['weather', 'news', 'report', 'draft', 'blog'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
   }
 
   async function show() {
-    for (const id of ['weather', 'news', 'report', 'draft']) $(id).hidden = true;
+    for (const id of ['weather', 'news', 'report', 'draft', 'blog']) $(id).hidden = true;
     $('tpl').hidden = false;
     document.documentElement.classList.add('has-side');
     $('tpl-msg').textContent = '';

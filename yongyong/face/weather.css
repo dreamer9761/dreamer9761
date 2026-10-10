@@ -152,3 +152,11 @@ html.dash-on .dash {
 .draft-msg { margin-top: 8px; font-size: 14px; color: var(--glow); min-height: 20px; }
 .tpl-text { min-height: 55vh; font-size: 14px; }
 .account.tpl-link { right: 150px; }
+
+/* 블로그 초안 */
+.blog-title { width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: 12px; font: 700 17px -apple-system, "Apple SD Gothic Neo", sans-serif;
+  border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.25); color: var(--text); }
+.blog-body { max-height: 46vh; overflow-y: auto; margin-top: 10px; padding: 4px 14px; border-radius: 12px; background: rgba(255,255,255,.04); }
+.blog-tags { margin-top: 8px; font-size: 13px; color: #7cc4ff; }
+.blog-row { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.blog-row input { margin-left: 6px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.25); color: var(--text); }

@@ -22,11 +22,11 @@
   function close() {
     clearTimeout(closeTimer);
     $('report').hidden = true;
-    if ($('weather').hidden && $('news').hidden && $('draft').hidden && $('tpl').hidden) document.documentElement.classList.remove('has-side');
+    if ($('weather').hidden && $('news').hidden && $('draft').hidden && $('tpl').hidden && $('blog').hidden) document.documentElement.classList.remove('has-side');
   }
 
   async function show(name) {
-    for (const id of ['weather', 'news', 'draft', 'tpl']) $(id).hidden = true;
+    for (const id of ['weather', 'news', 'draft', 'tpl', 'blog']) $(id).hidden = true;
     $('report').hidden = false;
     document.documentElement.classList.add('has-side');
     try { if (window.innerWidth < 900) window.resizeTo(1120, Math.max(window.outerHeight, 820)); } catch (e) {}

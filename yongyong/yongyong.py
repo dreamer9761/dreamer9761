@@ -96,7 +96,7 @@ MIN_SPEECH_SEC = 0.4
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
 LOGIN_RE = re.compile(r"계정\s?연결|(클로드|클라우드|claude)\s*로그인", re.I)  # "크몽 로그인" 은 해당 없음
-PANEL_TAG = re.compile(r"\[\[(날씨|뉴스|크몽|답변)(?::\s*([^\]]*?))?\s*\]\]")
+PANEL_TAG = re.compile(r"\[\[(날씨|뉴스|크몽|답변|블로그)(?::\s*([^\]]*?))?\s*\]\]")
 DRAFT = DATA / "kmong_draft.md"  # 크몽 답변 초안 (용용이가 쓰고, 화면에서 고쳐서 크몽 입력창에 넣음)
 KMONG_STATUS_RE = re.compile(r"매출|결제|발송|현황|주문|정산|브리핑|상담|답변|답장|초안")  # 이런 요청엔 열린 화면 요약을 붙이지 않음
 REPORTS = {"크몽": ("크몽 현황", DATA / "kmong_report.md")}
@@ -110,7 +110,8 @@ FACE = face.Face()
 SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
 MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
-        "music": "genie"}  # music: 기본 음악 서비스 genie | youtube
+        "music": "genie",  # music: 기본 음악 서비스 genie | youtube
+        "blog": "mon 10:00", "tistory": ""}  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -291,7 +292,7 @@ def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
     persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
                .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py"))
-               .replace("{DRAFT}", str(DRAFT)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
+               .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
@@ -413,6 +414,8 @@ def show_panels(answer):
             FACE.panel("report", name="크몽")
         elif kind == "답변":
             FACE.panel("draft")
+        elif kind == "블로그":
+            FACE.panel("blog")
     return PANEL_TAG.sub("", answer).strip()
 
 
@@ -484,13 +487,46 @@ def idle_watch():
             shown = False
 
 
+BLOG_DIR = DATA / "blog"
+WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+BLOG_PROMPT = "이번 주 블로그 글 초안을 써 줘. 화면에 띄울 수 있게 대답 끝에 [[블로그]] 를 붙여."
+
+
+def blog_week():
+    """매주 정해진 요일·시각에 블로그 초안을 만들고 알려 준다 (올리기는 대표님이 직접)."""
+    log("📝 이번 주 블로그 초안 쓰는 중")
+    answer = Brain(remember=False).ask(BLOG_PROMPT)
+    with BUSY, deaf():
+        speak(show_panels(answer))
+
+
+def blog_route(_body):
+    files = sorted(BLOG_DIR.glob("*.md")) if BLOG_DIR.exists() else []
+    if not files:
+        return {"ok": False, "tistory": MODE.get("tistory", "")}
+    text = files[-1].read_text(encoding="utf-8")
+    out = {"ok": True, "tistory": MODE.get("tistory", ""),
+           "updated": files[-1].stem + " 초안 · 확인하고 직접 올려 주세요"}
+    for key, name in (("naver", "네이버"), ("tistory", "티스토리")):
+        m = re.search(r"^##\s*" + name + r"\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+        part = m.group(1) if m else ""
+        title = re.search(r"^제목\s*[:：]\s*(.+)$", part, re.M)
+        tags = re.search(r"^태그\s*[:：]\s*(.+)$", part, re.M)
+        body = part.split("\n---", 1)[1] if "\n---" in part else part
+        out[key] = {"title": title.group(1).strip() if title else "", "tags": tags.group(1).strip() if tags else "",
+                    "body": body.strip()}
+    return out
+
+
 def schedule_loop():
-    """매일 정해진 시각에 기상 음악과 아침 브리핑."""
+    """정해진 시각에 기상 음악, 아침 브리핑, 주간 블로그 초안."""
     done = set()
     while True:
         time.sleep(15)
         now, today = time.strftime("%H:%M"), time.strftime("%Y-%m-%d")
-        jobs = [("alarm", MODE.get("alarm"), wake_up), ("briefing", BRIEFING_TIME, briefing)]
+        blog_day, _, blog_at = (MODE.get("blog") or "").partition(" ")
+        jobs = [("alarm", MODE.get("alarm"), wake_up), ("briefing", BRIEFING_TIME, briefing),
+                ("blog", blog_at if WEEKDAYS[time.localtime().tm_wday] == blog_day else "", blog_week)]
         for name, at, job in jobs:
             if at and now == at and (name, today) not in done:
                 done.add((name, today))
@@ -537,6 +573,8 @@ def mode_route(body):
         log("입력 방식: " + ("음성" if MODE["input"] == "voice" else "텍스트"))
     if "speak" in body:
         MODE["speak"] = bool(body["speak"])
+    if "tistory" in body:
+        MODE["tistory"] = re.sub(r"[^a-z0-9-]", "", str(body["tistory"]).lower())[:40]
     SETTINGS.write_text(json.dumps(MODE))
     publish_mode()
     return {"ok": True, **MODE, "input": input_mode(), "music": MUSIC.is_set()}
@@ -929,6 +967,7 @@ def main():
         FACE.routes["/draft/insert"] = draft_insert_route
         FACE.routes["/templates"] = templates_route
         FACE.routes["/templates/save"] = templates_save_route
+        FACE.routes["/blog"] = blog_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄
@@ -951,7 +990,7 @@ def main():
     threading.Thread(target=music_watch, daemon=True).start()
     if IDLE_MIN > 0:
         threading.Thread(target=idle_watch, daemon=True).start()
-    log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'}")
+    log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'} / 블로그 초안: {MODE.get('blog') or '꺼짐'}")
 
     def on_audio(indata, frames, t, status):
         if not muted.is_set() and input_mode() == "voice":

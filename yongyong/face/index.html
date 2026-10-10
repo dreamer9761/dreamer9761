@@ -13,6 +13,7 @@
 <script src="dash.js"></script>
 <script src="draft.js"></script>
 <script src="templates.js"></script>
+<script src="blog.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -279,6 +280,24 @@
     </div>
     <ol class="news-list" id="news-list"></ol>
   </section>
+  <section class="wx side-panel" id="blog" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place">📝 이번 주 블로그 초안</div><div class="wx-updated" id="blog-updated"></div></div>
+      <button class="wx-close" id="blog-close" aria-label="닫기">✕</button>
+    </div>
+    <div class="modebar"><button class="blog-tab on" data-site="naver">네이버 블로그</button><button class="blog-tab" data-site="tistory">티스토리</button></div>
+    <div id="blog-tistory" class="blog-row" hidden>티스토리 주소 <input id="blog-tistory-name" placeholder="○○○ (○○○.tistory.com)"> </div>
+    <input id="blog-title" class="blog-title" spellcheck="false">
+    <div class="report-body blog-body" id="blog-body"></div>
+    <div class="blog-tags" id="blog-tags"></div>
+    <div class="draft-actions">
+      <button id="blog-open">글쓰기 화면 열기</button>
+      <button id="blog-copy-title" class="ghost">제목 복사</button>
+      <button id="blog-copy-body" class="ghost">본문 복사</button>
+      <button id="blog-copy-tags" class="ghost">태그 복사</button>
+    </div>
+    <div class="draft-msg" id="blog-msg"></div>
+  </section>
   <section class="wx side-panel" id="tpl" hidden>
     <div class="wx-head">
       <div><div class="wx-place">📋 자주 쓰는 문구</div>
@@ -415,6 +434,7 @@
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
       else if (msg.panel === 'draft') window.YongDraft.show();
       else if (msg.panel === 'templates') window.YongTemplates.show();
+      else if (msg.panel === 'blog') window.YongBlog.show();
       else if (msg.panel === 'dash') msg.on ? window.YongDash.show() : window.YongDash.hide();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.mode) window.YongChat.apply(msg.mode);
