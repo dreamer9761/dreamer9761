@@ -188,7 +188,8 @@ def deaf():
 
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
-    return f"{PERSONA}\n\n기억 (파일: {MEMO})\n{memo}\n"
+    persona = PERSONA.replace("{WEATHER}", str(HERE / "weather.py"))
+    return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
 
 class Brain:
