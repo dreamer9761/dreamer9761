@@ -21,6 +21,14 @@ if [[ -z "$TS" ]]; then
   echo "==> 2. Tailscale 이 없어요. https://tailscale.com/download 에서 맥용을 설치하고 로그인한 뒤 이 스크립트를 다시 실행하세요."
   exit 0
 fi
+if "$TS" status 2>&1 | grep -qi "logged out\|not logged in\|stopped"; then
+  echo
+  echo "==> 2. 맥미니의 Tailscale 이 로그인되어 있지 않아요."
+  echo "    화면 맨 위 메뉴 막대의 Tailscale 아이콘(또는 응용 프로그램의 Tailscale) → Log in → 휴대폰과 같은 구글 계정으로 로그인"
+  echo "    'Connected' 가 보이면 이 스크립트를 다시 실행하세요."
+  open -a Tailscale 2>/dev/null || true
+  exit 0
+fi
 echo "==> 2. Tailscale 로 용용이 화면 열기 (내 Tailscale 기기에서만 접속 가능)"
 echo "    (처음이면 HTTPS 를 켜는 링크가 나와요. 그 링크를 열어 허용한 뒤 기다리면 이어서 진행돼요)"
 "$TS" serve --bg 8765
