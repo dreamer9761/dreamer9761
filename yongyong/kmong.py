@@ -119,10 +119,113 @@ def open_and_read(url, js=_JS_TEXT):
     return final, body.strip()[:MAX_CHARS]
 
 
+# ── 크몽 자동 로그인 (소셜 로그인 + 전문가 모드 전환) ───────────────────────────
+# 비밀번호는 다루지 않는다. 사파리에 남아 있는 카카오·네이버·구글·애플 로그인 상태로 버튼만 눌러 다시 로그인한다.
+PROVIDERS = {
+    "카카오": ["카카오", "kakao"], "네이버": ["네이버", "naver"],
+    "구글": ["구글", "google"], "애플": ["애플", "apple"],
+}
+_NEW_WINDOW = r"""
+on run argv
+  tell application "Safari"
+    make new document with properties {URL:(item 1 of argv)}
+    return id of front window
+  end tell
+end run
+"""
+_RUN_JS = r"""
+on run argv
+  tell application "Safari" to return do JavaScript (item 2 of argv) in current tab of window id ((item 1 of argv) as integer)
+end run
+"""
+_CLOSE_WINDOW = r"""
+on run argv
+  tell application "Safari" to close window id ((item 1 of argv) as integer)
+end run
+"""
+_JS_STATE = r"""(() => {
+  const texts = Array.from(document.querySelectorAll('a,button')).map(e => (e.innerText || '').trim());
+  const out = texts.some(t => t === '로그인' || t === '회원가입');
+  return (document.readyState === 'complete' ? 'ready' : 'loading') + '|' + (out ? 'out' : 'in') + '|' + location.host;
+})()"""
+_JS_CLICK = r"""((want, avoid) => {
+  const norm = (e) => (e.innerText || e.getAttribute('aria-label') || e.getAttribute('alt') || e.title || '').replace(/\s+/g, '').toLowerCase();
+  const els = Array.from(document.querySelectorAll('a,button,[role=button],img[alt]'));
+  const el = els.find(e => { const t = norm(e); return t && want.some(w => t.includes(w)) && !avoid.some(a => t.includes(a)); });
+  if (!el) return 'notfound';
+  (el.closest('a,button,[role=button]') || el).click();
+  return 'clicked:' + norm(el).slice(0, 30);
+})(%s, %s)"""
+
+
+def _osa(script, *args):
+    with tempfile.NamedTemporaryFile("w", suffix=".applescript", delete=False) as f:
+        f.write(script)
+    try:
+        p = subprocess.run(["osascript", f.name, *map(str, args)], capture_output=True, text=True, timeout=30)
+    finally:
+        os.unlink(f.name)
+    if p.returncode != 0:
+        err = p.stderr.strip()
+        if "JavaScript" in err or "Apple Events" in err or "Apple 이벤트" in err:
+            raise SafariError("사파리에서 'Apple Events의 JavaScript 허용'을 켜 주세요.")
+        raise SafariError(err)
+    return p.stdout.strip()
+
+
+def _click(win, want, avoid=()):
+    import json
+    return _osa(_RUN_JS, win, _JS_CLICK % (json.dumps([w.lower() for w in want]), json.dumps([a.lower() for a in avoid])))
+
+
+def _state(win):
+    try:
+        ready, login, host = _osa(_RUN_JS, win, _JS_STATE).split("|")
+        return ready == "ready", login == "in", host
+    except (SafariError, ValueError):
+        return False, False, ""
+
+
+def _wait(win, seconds, done):
+    import time
+    for _ in range(int(seconds / 0.7)):
+        time.sleep(0.7)
+        st = _state(win)
+        if st[0] and done(*st):
+            return True
+    return False
+
+
+def login(provider):
+    """크몽에 소셜 로그인 후 전문가 모드로 전환. 결과 문장을 돌려준다."""
+    import time
+    words = PROVIDERS.get(provider.replace("로그인", "").strip())
+    if not words:
+        return "로그인 방법을 카카오, 네이버, 구글, 애플 중에서 알려 주세요."
+    win = _osa(_NEW_WINDOW, "https://kmong.com/")
+    _wait(win, 20, lambda ready, logged_in, host: True)
+    if not _state(win)[1]:
+        _click(win, ["로그인"], ["로그인없이"])
+        _wait(win, 15, lambda ready, logged_in, host: True)
+        time.sleep(1.5)
+        if _click(win, words) == "notfound":
+            return "크몽 로그인 화면에서 %s 버튼을 찾지 못했어요. 열린 사파리 창에서 직접 로그인해 주세요." % provider
+        # 카카오 등의 로그인이 사파리에 남아 있으면 바로 돌아오고, 아니면 대표님이 창에서 직접 로그인할 때까지 기다림
+        if not _wait(win, 120, lambda ready, logged_in, host: "kmong.com" in host and logged_in):
+            return "%s 로그인이 끝나지 않았어요. 열린 사파리 창에서 직접 로그인해 주세요." % provider
+    time.sleep(1.5)
+    switched = _click(win, ["전문가로전환", "전문가전환", "전문가모드"], ["구매자"])
+    if switched != "notfound":
+        _wait(win, 15, lambda ready, logged_in, host: True)
+    _osa(_CLOSE_WINDOW, win)
+    return "크몽에 로그인했어요" + (" (전문가 모드로 전환)" if switched != "notfound" else "") + "."
+
+
 def _cli(argv):
     usage = ("사용법:\n  python3 kmong.py links [주소]   크몽 페이지의 링크(메뉴) 목록\n"
              "  python3 kmong.py read 주소      크몽 페이지 글자 읽기\n"
-             "  python3 kmong.py current        지금 사파리에 열린 크몽 탭 읽기")
+             "  python3 kmong.py current        지금 사파리에 열린 크몽 탭 읽기\n"
+             "  python3 kmong.py login 카카오   크몽 자동 로그인 + 전문가 모드 (카카오/네이버/구글/애플)")
     if not argv:
         print(usage)
         return 1
@@ -132,6 +235,8 @@ def _cli(argv):
     elif cmd == "links":
         final, body = open_and_read(rest[0] if rest else "https://kmong.com/", _JS_LINKS)
         print("[링크 목록] " + final + "\n" + body)
+    elif cmd == "login" and rest:
+        print(login(rest[0]))
     elif cmd == "read" and rest:
         final, body = open_and_read(rest[0])
         print("[페이지] " + final + "\n" + body)
