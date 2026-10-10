@@ -213,6 +213,8 @@ class Brain:
             log(f"claude 오류: {p.stderr.strip() or p.stdout.strip()}")
             return "죄송해요, 처리하다가 문제가 생겼어요. 터미널을 확인해 주세요."
         self.session_id = data.get("session_id", self.session_id)
+        for d in data.get("permission_denials") or []:
+            log(f"(권한 막힘) {d.get('tool_name')} {json.dumps(d.get('tool_input', {}), ensure_ascii=False)[:120]}")
         result = data.get("result") or "처리했어요."
         if needs_login(result):
             FACE.show("login")
