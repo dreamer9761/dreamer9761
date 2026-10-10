@@ -508,13 +508,16 @@ def blog_route(_body):
     out = {"ok": True, "tistory": MODE.get("tistory", ""),
            "updated": files[-1].stem + " 초안 · 확인하고 직접 올려 주세요"}
     for key, name in (("naver", "네이버"), ("tistory", "티스토리")):
-        m = re.search(r"^##\s*" + name + r"\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+        m = re.search(r"^##\s*" + name + r"\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)  # '## 이미지' 앞에서 끝남
         part = m.group(1) if m else ""
         title = re.search(r"^제목\s*[:：]\s*(.+)$", part, re.M)
         tags = re.search(r"^태그\s*[:：]\s*(.+)$", part, re.M)
         body = part.split("\n---", 1)[1] if "\n---" in part else part
         out[key] = {"title": title.group(1).strip() if title else "", "tags": tags.group(1).strip() if tags else "",
                     "body": body.strip()}
+    m = re.search(r"^##\s*이미지\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+    out["images"] = [{"kind": k.strip(), "parts": [x.strip() for x in v.split("|") if x.strip()]}
+                     for k, v in re.findall(r"^\s*-\s*([^:：\n]+)[:：]\s*(.+)$", m.group(1) if m else "", re.M)]
     return out
 
 

@@ -160,3 +160,8 @@ html.dash-on .dash {
 .blog-tags { margin-top: 8px; font-size: 13px; color: #7cc4ff; }
 .blog-row { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .blog-row input { margin-left: 6px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.25); color: var(--text); }
+.blog-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.blog-img { background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.blog-img img { width: 100%; border-radius: 8px; display: block; }
+.blog-img button { flex: 1; border: 0; border-radius: 8px; padding: 6px 4px; font-size: 12px; font-weight: 700; cursor: pointer; background: var(--scale); color: #0d1226; }
+.blog-img button.ghost { flex: 0 0 auto; background: rgba(255,255,255,.1); color: var(--text); padding: 6px 10px; }

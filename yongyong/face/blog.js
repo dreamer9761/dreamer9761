@@ -13,6 +13,30 @@
     $('blog-tags').textContent = d && d.tags ? d.tags : '';
     $('blog-body').innerHTML = d ? window.YongReport.markdown(d.body) : '<p>아직 초안이 없어요. "용용아, 블로그 글 써 줘" 라고 해 보세요.</p>';
     $('blog-tistory').hidden = site !== 'tistory';
+    images();
+  }
+
+  function images() {
+    const box = $('blog-images');
+    box.innerHTML = '';
+    const list = (data && data.images) || [];
+    $('blog-images-wrap').hidden = !list.length;
+    list.forEach((spec, i) => {
+      const canvas = window.YongBlogImages.draw(spec, i);
+      const name = `블로그_${(data.updated || '').slice(0, 10)}_${i + 1}.png`;
+      const card = document.createElement('div');
+      card.className = 'blog-img';
+      const img = new Image(); img.src = canvas.toDataURL('image/png'); img.alt = spec.parts.join(' ');
+      const save = document.createElement('button'); save.textContent = `이미지 ${i + 1} 저장`;
+      save.onclick = () => { window.YongBlogImages.save(canvas, name); $('blog-msg').textContent = `${name} 을(를) 다운로드 폴더에 저장했어요.`; };
+      const copy = document.createElement('button'); copy.textContent = '복사'; copy.className = 'ghost';
+      copy.onclick = async () => {
+        try { await window.YongBlogImages.copy(canvas); $('blog-msg').textContent = `이미지 ${i + 1} 을(를) 복사했어요. 글쓰기 화면의 [이미지 ${i + 1}] 자리에 붙여넣기(⌘V) 하세요.`; }
+        catch (e) { $('blog-msg').textContent = '복사가 안 되면 [저장]을 눌러 다운로드 폴더에서 끌어다 넣어 주세요.'; }
+      };
+      card.append(img, save, copy);
+      box.appendChild(card);
+    });
   }
 
   function close() {
