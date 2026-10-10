@@ -84,9 +84,14 @@
     background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
     border-radius: 16px; padding: 16px;
   }
-  body.login #login { display: block; }
-  body.login .subtitle { display: none; }
-  body.login .stage { width: min(60vw, 240px); }
+  body.login #login, html.show-login #login { display: block; }
+  body.login .subtitle, html.show-login .subtitle { display: none; }
+  body.login .stage, html.show-login .stage { width: min(60vw, 240px); }
+  .account {
+    position: fixed; right: 12px; bottom: 10px; border: 0; background: none;
+    color: var(--muted); font-size: 12px; cursor: pointer; opacity: .7;
+  }
+  .account:hover { opacity: 1; text-decoration: underline; }
   #login h2 { margin: 0 0 4px; font-size: 18px; }
   #login p { margin: 0 0 12px; color: var(--muted); font-size: 14px; line-height: 1.5; }
   #login .step { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
@@ -202,6 +207,8 @@
 <div class="status" id="status"></div>
 <div class="subtitle" id="subtitle"></div>
 
+<button class="account" id="account">Claude 계정 연결</button>
+
 <div class="login" id="login">
   <h2>Claude 계정 연결</h2>
   <p>용용이의 두뇌(Claude)를 쓰려면 한 번만 연결하면 돼요.</p>
@@ -291,7 +298,10 @@
     say('확인 중이에요… (10초 정도 걸려요)');
     try {
       const r = await post('/login/token', { token: tokenInput.value });
-      if (r.ok) { tokenInput.value = ''; say('연결됐어요!', 'ok'); }
+      if (r.ok) {
+        tokenInput.value = ''; say('연결됐어요!', 'ok');
+        setTimeout(() => document.documentElement.classList.remove('show-login'), 2500);
+      }
       else say(r.error || '연결하지 못했어요.', 'err');
     } catch (e) {
       say('용용이가 꺼져 있는 것 같아요. 용용이를 켠 뒤 다시 시도해 주세요.', 'err');
@@ -300,6 +310,12 @@
   }
   saveBtn.onclick = save;
   tokenInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+
+  document.getElementById('account').onclick = () => {
+    document.documentElement.classList.toggle('show-login');
+    say('');
+  };
+  if (location.hash === '#login') document.documentElement.classList.add('show-login');
 
   function connect() {
     const es = new EventSource('/events');
@@ -311,7 +327,7 @@
   // 서버 없이 열었을 때(미리보기) 데모
   if (location.protocol === 'file:') {
     const demo = Array.from({ length: 120 }, (_, i) => Math.abs(Math.sin(i / 2.3)) * (i % 17 > 3 ? 1 : 0.1));
-    if (location.hash === '#login') { setState({ state: 'login' }); } else {
+    if (location.hash === '#login') { /* 위에서 처리 */ } else {
     const seq = [
       () => setState({ state: 'listening' }),
       () => setState({ state: 'thinking' }),

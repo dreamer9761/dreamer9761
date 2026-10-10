@@ -323,6 +323,7 @@ def main():
         FACE.start()
     log("Claude 로그인 확인 중...")
     logged_in = check_login()
+    log("Claude 로그인 " + ("확인됨" if logged_in else "필요"))
     if not logged_in:
         log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:

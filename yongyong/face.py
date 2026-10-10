@@ -43,6 +43,7 @@ class Face:
                 body = PAGE.read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")  # 업데이트 후 옛 화면이 남지 않도록
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
