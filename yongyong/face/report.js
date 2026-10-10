@@ -47,5 +47,5 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => { $('report-close').onclick = close; });
-  window.YongReport = { show, close };
+  window.YongReport = { show, close, markdown };
 })();

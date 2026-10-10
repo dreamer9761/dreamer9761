@@ -1,4 +1,4 @@
-// 날씨 패널: Open-Meteo(무료, 키 필요 없음) 예보 + RainViewer 비구름 레이더 + 지도
+// 날씨 패널: Open-Meteo(무료, 키 필요 없음) 예보 + 한반도 지도
 (() => {
   // 주요 도시 좌표 (지명 검색이 실패해도 바로 쓰고, 지도에 주변 도시 날씨로도 표시)
   const CITIES = {
@@ -31,6 +31,12 @@
     if (!r) throw new Error(`'${place}' 위치를 찾지 못했어요.`);
     return { name: r.name, lat: r.latitude, lon: r.longitude };
   }
+
+  const forecast = (loc) => getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
+    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,cloud_cover,wind_speed_10m' +
+    '&hourly=temperature_2m,weather_code,precipitation_probability' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+    '&timezone=Asia%2FSeoul&forecast_days=7');
 
   function render(loc, f) {
     const c = f.current;
@@ -128,11 +134,7 @@
     closeTimer = setTimeout(close, 3 * 60 * 1000); // 3분 뒤 자동으로 닫기
     try {
       const loc = await locate(place);
-      const f = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
-        '&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,cloud_cover,wind_speed_10m' +
-        '&hourly=temperature_2m,weather_code,precipitation_probability' +
-        '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
-        '&timezone=Asia%2FSeoul&forecast_days=7');
+      const f = await forecast(loc);
       render(loc, f);
       await drawMap(loc, f.current);
     } catch (e) {
@@ -141,5 +143,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => { $('wx-close').onclick = close; });
-  window.YongWeather = { show, close };
+  // 대시보드 등 다른 화면에서 쓰는 날씨 데이터
+  async function data(place) {
+    const loc = await locate(place);
+    return { loc, f: await forecast(loc) };
+  }
+  window.YongWeather = { show, close, data, WMO };
 })();

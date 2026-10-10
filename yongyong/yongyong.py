@@ -103,7 +103,7 @@ SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 FACE = face.Face()
 SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
-MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00")}
+MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": ""}
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -377,6 +377,9 @@ def show_panels(answer):
         kind, arg = tags[-1]
         if kind == "날씨" and arg:
             FACE.panel("weather", place=arg)
+            if MODE.get("region") != arg:
+                MODE["region"] = arg
+                mode_route({})
         elif kind == "뉴스":
             FACE.panel("news", topic=arg)
         elif kind == "크몽":
@@ -563,6 +566,84 @@ def handle_command(command):
     speak(show_panels(BRAIN.ask(command)), then="listening")
 
 
+def default_region():
+    """대기 화면 날씨 지역: 마지막으로 물어본 지역, 없으면 기억 파일의 '기본 지역'."""
+    if MODE.get("region"):
+        return MODE["region"]
+    memo = MEMO.read_text(encoding="utf-8") if MEMO.exists() else ""
+    m = re.search(r"기본\s*지역\S*\s*[:：]?\s*([가-힣]{2,})", memo)
+    return m.group(1) if m else ""
+
+
+_refreshing = threading.Lock()
+
+
+def refresh_kmong_report():
+    """대기 화면용: 보고서가 오래됐으면 조용히(말하지 않고) 새로 만든다."""
+    if not _refreshing.acquire(blocking=False):
+        return
+    try:
+        log("대기 화면용 크몽 현황 새로 만드는 중")
+        Brain(remember=False).ask("크몽 현황 보고서를 새로 만들어 줘. 파일만 정리하고 대답은 '완료' 한 단어로.")
+    finally:
+        _refreshing.release()
+
+
+def dashboard_route(_body):
+    path = REPORTS["크몽"][1]
+    report = path.read_text(encoding="utf-8") if path.exists() else ""
+    age = time.time() - path.stat().st_mtime if path.exists() else None
+    if (age is None or age > 2 * 3600) and 9 <= time.localtime().tm_hour < 21:
+        threading.Thread(target=refresh_kmong_report, daemon=True).start()
+    updated = time.strftime("%H:%M 기준", time.localtime(path.stat().st_mtime)) if path.exists() else ""
+    return {"ok": True, "region": default_region(), "report": report, "updated": updated}
+
+
+# 캐릭터 창(사파리)을 화면 가득 키우거나 원래 크기로
+_WINDOW_SCRIPT = r"""
+on run argv
+  set wantFull to (item 1 of argv) is "full"
+  set addr to "127.0.0.1:" & (item 2 of argv)
+  tell application "Finder" to set sb to bounds of window of desktop
+  tell application "Safari"
+    repeat with w in windows
+      repeat with t in tabs of w
+        if URL of t contains addr then
+          set old to bounds of w
+          if wantFull then
+            set current tab of w to t
+            set bounds of w to {0, 25, item 3 of sb, item 4 of sb}
+            set index of w to 1
+          else if (count of argv) > 2 then
+            set bounds of w to {(item 3 of argv) as integer, (item 4 of argv) as integer, (item 5 of argv) as integer, (item 6 of argv) as integer}
+          end if
+          return ((item 1 of old) as text) & " " & (item 2 of old) & " " & (item 3 of old) & " " & (item 4 of old)
+        end if
+      end repeat
+    end repeat
+  end tell
+  return ""
+end run
+"""
+_saved_bounds = []
+
+
+def window_route(body):
+    full = bool(body.get("full"))
+    if full and _saved_bounds:
+        return {"ok": True}
+    args = ["full" if full else "restore", face.PORT, *(_saved_bounds if not full else [])]
+    try:
+        out = kmong._osa(_WINDOW_SCRIPT, *args)
+    except Exception as e:  # 창 크기 조절은 못 해도 화면은 그대로 보임
+        return {"ok": False, "error": str(e)}
+    if full and out:
+        _saved_bounds[:] = out.split()
+    elif not full:
+        _saved_bounds.clear()
+    return {"ok": True}
+
+
 def news_route(body):
     label, items = news.fetch_news(str(body.get("topic", "")), limit=15)
     return {"ok": True, "label": label, "items": items}
@@ -633,6 +714,8 @@ def main():
         FACE.routes["/report"] = report_route
         FACE.routes["/mode"] = mode_route
         FACE.routes["/ask"] = ask_route
+        FACE.routes["/dashboard"] = dashboard_route
+        FACE.routes["/window"] = window_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄

@@ -111,3 +111,32 @@ html.text-mode .stage { width: min(60vw, 230px); }
   background: rgba(126, 240, 192, .12); color: var(--glow); }
 html.music-on .music-note { display: block; }
 .modebar button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 대기 화면 (10분 동안 입력이 없을 때) */
+.dash { display: none; }
+html.dash-on .dash {
+  display: grid; position: fixed; inset: 0; z-index: 50; padding: 4vh 4vw; gap: 2.5vh 3vw;
+  grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr auto;
+  background: radial-gradient(circle at 30% 20%, #1b2550, #090d1c 75%); overflow: hidden;
+}
+.dash-clock { grid-column: 1 / -1; text-align: center; }
+#dash-time { font-size: clamp(64px, 14vw, 220px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+#dash-time span { font-size: .3em; color: var(--muted); margin-left: .3em; vertical-align: top; }
+#dash-date { font-size: clamp(18px, 2.4vw, 34px); color: var(--muted); margin-top: 1vh; }
+.dash-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 22px; padding: 2.5vh 2vw; overflow: hidden; min-height: 0; }
+.dash-card h2 { margin: 0 0 1.5vh; font-size: clamp(16px, 1.6vw, 24px); color: var(--glow); }
+.dash-card h2 small { font-size: .6em; color: var(--muted); font-weight: 400; margin-left: 8px; }
+.dash-now { display: flex; align-items: center; gap: 1.5vw; }
+.dash-now .i { font-size: clamp(48px, 6vw, 96px); }
+.dash-now .t { font-size: clamp(48px, 6vw, 96px); font-weight: 700; }
+.dash-now .d { font-size: clamp(14px, 1.4vw, 22px); color: var(--muted); line-height: 1.6; }
+.dash-now .d b { color: var(--text); }
+.dash-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: .8vw; margin-top: 3vh; text-align: center; font-size: clamp(13px, 1.2vw, 18px); }
+.dash-days > div { background: rgba(255,255,255,.05); border-radius: 14px; padding: 1.2vh 0; }
+.dash-days .i { font-size: clamp(24px, 2.6vw, 40px); margin: .6vh 0; }
+.dash-days .l { color: var(--muted); }
+.dash-days .r { color: #7cc4ff; font-size: .85em; min-height: 1.2em; }
+.dash-km .report-body { font-size: clamp(13px, 1.15vw, 18px); }
+.dash-muted { color: var(--muted); }
+.dash-hint { grid-column: 1 / -1; text-align: center; color: var(--muted); font-size: 13px; opacity: .6; }
+@media (max-width: 760px) { html.dash-on .dash { grid-template-columns: 1fr; overflow: auto; } }

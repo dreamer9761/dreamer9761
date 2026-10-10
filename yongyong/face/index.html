@@ -10,6 +10,7 @@
 <script src="news.js"></script>
 <script src="report.js"></script>
 <script src="chat.js"></script>
+<script src="dash.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -228,6 +229,13 @@
   </div>
 </div>
 
+<div class="dash" id="dash">
+  <section class="dash-clock"><div id="dash-time"></div><div id="dash-date"></div></section>
+  <section class="dash-card"><h2>날씨</h2><div id="dash-wx"></div></section>
+  <section class="dash-card dash-km"><h2>크몽 현황 <small id="dash-kmong-updated"></small></h2><div class="report-body" id="dash-kmong"></div></section>
+  <div class="dash-hint">마우스를 움직이거나 "용용아" 하고 부르면 돌아가요</div>
+</div>
+
 <button class="account" id="account">Claude 계정 연결</button>
 
 <div class="login" id="login">
@@ -374,6 +382,7 @@
     const es = new EventSource('/events');
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
+      if ((msg.state && msg.state !== 'idle') || msg.panel === 'chat') window.YongDash.activity();
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
