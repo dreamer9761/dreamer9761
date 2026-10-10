@@ -68,10 +68,8 @@ echo "export YONGYONG_WHISPER=\"$WHISPER\"" >> .env.tmp
 mv .env.tmp .env && chmod 600 .env
 mkdir -p "$HOME/projects"
 
-# 바탕화면에 더블클릭으로 켜는 아이콘
-LAUNCHER="$HOME/Desktop/용용이.command"
-printf '#!/bin/bash\nexec "%s/run.sh"\n' "$PWD" > "$LAUNCHER"
-chmod +x "$LAUNCHER"
+# 바탕화면에 더블클릭으로 켜는 용용이 앱
+./make_app.sh
 
 echo
 echo "==> 설치 완료!"

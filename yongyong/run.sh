@@ -20,11 +20,15 @@ fi
 [[ -f .env ]] && source .env
 [[ -x .venv/bin/python ]] || { echo "먼저 ./install.sh 를 실행하세요."; exit 1; }
 
-# 2) 맥을 켜면 용용이가 자동으로 켜지도록 (처음 한 번만 등록)
-LAUNCHER="$HOME/Desktop/용용이.command"
-if [[ -f "$LAUNCHER" && ! -f .login-item ]]; then
-  if osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$LAUNCHER\", hidden:false}" >/dev/null 2>&1; then
-    touch .login-item
+# 2) 바탕화면 앱이 없으면 만들기
+APP="$HOME/Desktop/용용이.app"
+[[ -d "$APP" ]] || ./make_app.sh || true
+
+# 3) 맥을 켜면 용용이가 자동으로 켜지도록 (처음 한 번만 등록)
+if [[ -d "$APP" && ! -f .login-item-app ]]; then
+  osascript -e 'tell application "System Events" to delete (every login item whose name is "용용이.command")' >/dev/null 2>&1 || true
+  if osascript -e "tell application \"System Events\" to make login item at end with properties {path:\"$APP\", hidden:false}" >/dev/null 2>&1; then
+    touch .login-item-app
     echo "==> 맥을 켜면 용용이가 자동으로 켜지도록 등록했어요. (끄기: 시스템 설정 → 일반 → 로그인 항목)"
   fi
 fi

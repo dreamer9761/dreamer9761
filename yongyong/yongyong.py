@@ -330,15 +330,21 @@ def main():
     dev, info = pick_mic()
     rate = int(info["default_samplerate"])
     log(f"마이크: {info['name']} ({rate}Hz) / 음성인식: {WHISPER_MODEL} / 작업 폴더: {WORKDIR}")
-
+    if SHOW_FACE:
+        FACE.routes["/login/start"] = login_start
+        FACE.routes["/login/token"] = login_token
+        try:
+            FACE.start()
+        except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄
+            print("용용이가 이미 켜져 있어요. 캐릭터 창을 다시 열게요.")
+            subprocess.run(["open", f"http://127.0.0.1:{face.PORT}/"], check=False)
+            return
+    FACE.show("thinking")
     log("음성인식 모델 준비 중... (처음 한 번은 다운로드 때문에 몇 분 걸려요)")
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32))
 
     brain = Brain()
-    if SHOW_FACE:
-        FACE.routes["/login/start"] = login_start
-        FACE.routes["/login/token"] = login_token
-        FACE.start()
+
     log("Claude 로그인 확인 중...")
     logged_in = check_login()
     log("Claude 로그인 " + ("확인됨" if logged_in else "필요"))
