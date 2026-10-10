@@ -409,11 +409,13 @@
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if ((msg.state && msg.state !== 'idle') || msg.panel === 'chat') window.YongDash.activity();
+      if (msg.panel === 'dash') { msg.on ? window.YongDash.show() : window.YongDash.hide(); return; }
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
       else if (msg.panel === 'news') window.YongNews.show(msg.topic);
       else if (msg.panel === 'report') window.YongReport.show(msg.name);
       else if (msg.panel === 'draft') window.YongDraft.show();
       else if (msg.panel === 'templates') window.YongTemplates.show();
+      else if (msg.panel === 'dash') msg.on ? window.YongDash.show() : window.YongDash.hide();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }

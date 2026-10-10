@@ -456,6 +456,34 @@ def wake_up():
         genie.volume(level)
 
 
+IDLE_MIN = int(os.environ.get("YONGYONG_IDLE_MIN", "10"))  # 맥을 이만큼 안 쓰면 대기 화면 (0 이면 끔)
+
+
+def system_idle_seconds():
+    """맥 전체에서 마지막으로 키보드·마우스를 쓴 뒤 지난 시간(초). 다른 앱에서 일하는 것도 포함."""
+    out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True).stdout
+    m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
+    return int(m.group(1)) / 1e9 if m else 0.0
+
+
+def idle_watch():
+    """대기 화면은 맥을 정말 아무도 안 쓸 때만. 용용이가 일하는 중이거나 키보드·마우스를 쓰면 바로 닫음."""
+    shown = False
+    while True:
+        time.sleep(15)
+        try:
+            idle = system_idle_seconds()
+        except OSError:
+            continue
+        working = BUSY.locked() or _refreshing.locked()
+        if not shown and idle >= IDLE_MIN * 60 and not working:
+            FACE.panel("dash", on=True)
+            shown = True
+        elif shown and (idle < 20 or BUSY.locked()):
+            FACE.panel("dash", on=False)
+            shown = False
+
+
 def schedule_loop():
     """매일 정해진 시각에 기상 음악과 아침 브리핑."""
     done = set()
@@ -921,6 +949,8 @@ def main():
         log(f"크몽 새 문의 확인: {KMONG_POLL_SEC // 60}분마다")
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=music_watch, daemon=True).start()
+    if IDLE_MIN > 0:
+        threading.Thread(target=idle_watch, daemon=True).start()
     log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'}")
 
     def on_audio(indata, frames, t, status):

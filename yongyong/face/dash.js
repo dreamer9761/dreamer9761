@@ -1,6 +1,5 @@
-// 대기 화면: 10분 동안 입력이 없으면 시계·날씨·크몽 현황을 창 가득 보여 준다. 움직이거나 말을 걸면 사라짐.
+// 대기 화면: 맥을 10분 동안 아무도 쓰지 않으면 시계·날씨·크몽 현황을 창 가득 보여 준다. 움직이거나 말을 걸면 사라짐.
 (() => {
-  const IDLE_MS = 10 * 60 * 1000;
   const $ = (id) => document.getElementById(id);
   const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
   const post = (path, data) => fetch(path, {
@@ -73,6 +72,6 @@
     mouse = [e.screenX, e.screenY];
   }, { passive: true });
   ['mousedown', 'keydown', 'touchstart', 'wheel'].forEach((ev) => window.addEventListener(ev, activity, { passive: true }));
-  setInterval(() => { if (!on && Date.now() - last >= IDLE_MS) show(); }, 5000);
+  // 언제 띄울지는 용용이(파이썬)가 맥 전체의 키보드·마우스 사용 시간을 보고 정한다 (다른 앱에서 작업 중이면 안 뜸)
   window.YongDash = { activity, show, hide };
 })();

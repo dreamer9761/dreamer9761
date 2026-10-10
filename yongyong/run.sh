@@ -33,5 +33,5 @@ if [[ -d "$APP" && ! -f .login-item-app ]]; then
   fi
 fi
 
-# 4) 용용이가 켜져 있는 동안 맥이 잠자기에 들어가지 않게 (화면만 꺼지는 건 괜찮음)
-exec caffeinate -i -s .venv/bin/python yongyong.py "$@"
+# 4) 용용이가 켜져 있는 동안 맥과 모니터가 잠들지 않게 (-d: 화면, -i: 시스템, -s: 전원 연결 시)
+exec caffeinate -d -i -s .venv/bin/python yongyong.py "$@"
