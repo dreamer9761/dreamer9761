@@ -195,7 +195,10 @@ class Brain:
             log(f"claude 오류: {p.stderr.strip() or p.stdout.strip()}")
             return "죄송해요, 처리하다가 문제가 생겼어요. 터미널을 확인해 주세요."
         self.session_id = data.get("session_id", self.session_id)
-        return data.get("result") or "처리했어요."
+        result = data.get("result") or "처리했어요."
+        if "Not logged in" in result or "/login" in result:
+            return "Claude 로그인이 필요해요. 터미널에서 용용이 폴더의 login 스크립트를 실행해 주세요."
+        return result
 
 
 def kmong_prompt(page, new_lines=None):

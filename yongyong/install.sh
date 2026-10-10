@@ -61,9 +61,11 @@ fi
 uv venv --python 3.12 --allow-existing .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 
-cat > .env <<ENV
-export YONGYONG_WHISPER="$WHISPER"
-ENV
+# 설정 파일: 다른 설정(로그인 토큰 등)은 그대로 두고 음성인식 모델만 갱신
+touch .env && chmod 600 .env
+grep -v '^export YONGYONG_WHISPER=' .env > .env.tmp || true
+echo "export YONGYONG_WHISPER=\"$WHISPER\"" >> .env.tmp
+mv .env.tmp .env && chmod 600 .env
 mkdir -p "$HOME/projects"
 
 # 바탕화면에 더블클릭으로 켜는 아이콘
@@ -73,6 +75,6 @@ chmod +x "$LAUNCHER"
 
 echo
 echo "==> 설치 완료!"
-echo "  1. 처음 한 번은 터미널에서 'claude' 를 실행해 로그인하세요 (이미 했다면 생략)."
+echo "  1. 처음 한 번은 Claude 로그인:  ~/dreamer9761/yongyong/login.sh  (이미 했다면 생략)"
 echo "  2. 용용이 실행: 바탕화면의 '용용이' 아이콘 더블클릭 (또는 ~/dreamer9761/yongyong/run.sh)"
 echo "     처음 실행 때 '터미널이 마이크에 접근하려고 합니다' 창이 뜨면 [허용]을 누르세요."

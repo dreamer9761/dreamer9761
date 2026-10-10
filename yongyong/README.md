@@ -12,6 +12,15 @@ AI(Claude Code), 음성인식(Whisper), 캐릭터까지 한 번에 설치하고 
 
 설치 스크립트가 맥 사양(칩, 메모리, 마이크)을 읽어서 말로 알려 주고, 메모리에 맞는 음성인식 모델을 골라 설치합니다.
 
+## Claude 로그인 (처음 한 번)
+
+```bash
+~/dreamer9761/yongyong/login.sh
+```
+
+브라우저에서 Claude Pro 계정으로 승인 → 터미널에 나온 `sk-ant-oat01-…` 토큰을 붙여넣으면 `yongyong/.env` 에 저장됩니다(이 맥에만 저장, git 에 안 올라감).
+용용이가 "Not logged in" 또는 "로그인이 필요해요" 라고 하면 이걸 다시 실행하세요.
+
 ## 실행
 
 바탕화면의 **용용이** 아이콘을 더블클릭 (또는 `~/dreamer9761/yongyong/run.sh`).
