@@ -17,6 +17,7 @@ from pathlib import Path
 
 import face
 import kmong
+import news
 import mlx_whisper
 import numpy as np
 import sounddevice as sd
@@ -75,7 +76,7 @@ MIN_SPEECH_SEC = 0.4
 WAKE_RE = re.compile(r"(용\s?용|용\s?룡|영\s?용|용\s?영|룡\s?용)\s*(아|이|야)?[\s,.!?~]*")
 RESET_RE = re.compile(r"새\s?대화|처음부터")
 LOGIN_RE = re.compile(r"로그인|계정\s?연결")
-PANEL_TAG = re.compile(r"\[\[날씨:\s*([^\]]+?)\s*\]\]")
+PANEL_TAG = re.compile(r"\[\[(날씨|뉴스):\s*([^\]]*?)\s*\]\]")
 
 SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 
@@ -188,7 +189,7 @@ def deaf():
 
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
-    persona = PERSONA.replace("{WEATHER}", str(HERE / "weather.py"))
+    persona = PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
 
 
@@ -280,6 +281,11 @@ def login_token(body):
     return {"ok": True}
 
 
+def news_route(body):
+    label, items = news.fetch_news(str(body.get("topic", "")), limit=15)
+    return {"ok": True, "label": label, "items": items}
+
+
 def kmong_prompt(page, new_lines=None):
     prompt = KMONG_INSTRUCTIONS
     if new_lines is not None:
@@ -340,6 +346,7 @@ def main():
     if SHOW_FACE:
         FACE.routes["/login/start"] = login_start
         FACE.routes["/login/token"] = login_token
+        FACE.routes["/news"] = news_route
         try:
             FACE.start()
         except OSError:  # 이미 다른 창에서 용용이가 켜져 있음 → 캐릭터 창만 다시 열고 끝냄
@@ -412,8 +419,11 @@ def main():
                         speak(str(e))
                         continue
                 answer = brain.ask(command)
-                for place in PANEL_TAG.findall(answer)[:1]:
-                    FACE.panel("weather", place=place)
+                for kind, arg in PANEL_TAG.findall(answer)[:1]:
+                    if kind == "날씨" and arg:
+                        FACE.panel("weather", place=arg)
+                    elif kind == "뉴스":
+                        FACE.panel("news", topic=arg)
                 speak(PANEL_TAG.sub("", answer).strip(), then="listening")
                 awake_until = time.time() + FOLLOW_UP_SEC
 

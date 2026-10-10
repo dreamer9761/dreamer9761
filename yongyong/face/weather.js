@@ -111,11 +111,14 @@
 
   function close() {
     clearTimeout(closeTimer);
-    document.documentElement.classList.remove('has-weather');
+    $('weather').hidden = true;
+    if ($('news').hidden) document.documentElement.classList.remove('has-side');
   }
 
   async function show(place) {
-    document.documentElement.classList.add('has-weather');
+    $('news').hidden = true;
+    $('weather').hidden = false;
+    document.documentElement.classList.add('has-side');
     try { if (window.innerWidth < 900) window.resizeTo(1120, Math.max(window.outerHeight, 820)); } catch (e) {}
     $('wx-err').textContent = '';
     $('wx-place').textContent = `📍 ${place}`;

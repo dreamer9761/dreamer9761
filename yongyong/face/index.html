@@ -7,6 +7,7 @@
 <script src="korea-map.js"></script>
 <link rel="stylesheet" href="weather.css">
 <script src="weather.js"></script>
+<script src="news.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -230,7 +231,7 @@
 </div>
 
 <div class="col-side">
-  <section class="wx" id="weather">
+  <section class="wx side-panel" id="weather" hidden>
     <div class="wx-head">
       <div><div class="wx-place" id="wx-place"></div><div class="wx-updated" id="wx-updated"></div></div>
       <button class="wx-close" id="wx-close" aria-label="닫기">✕</button>
@@ -243,6 +244,13 @@
     <div class="wx-title">주간 날씨</div>
     <div class="wx-row wx-days" id="wx-days"></div>
     <div class="wx-err" id="wx-err"></div>
+  </section>
+  <section class="wx side-panel" id="news" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place" id="news-title"></div><div class="wx-updated" id="news-updated"></div></div>
+      <button class="wx-close" id="news-close" aria-label="닫기">✕</button>
+    </div>
+    <ol class="news-list" id="news-list"></ol>
   </section>
 </div>
 
@@ -344,7 +352,8 @@
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.panel === 'weather') window.YongWeather.show(msg.place);
-      else if (msg.panel === 'close') window.YongWeather.close();
+      else if (msg.panel === 'news') window.YongNews.show(msg.topic);
+      else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); }
       else setState(msg);
     };
     es.onerror = () => { status.textContent = '용용이를 기다리는 중…'; };
@@ -354,7 +363,9 @@
   // 서버 없이 열었을 때(미리보기) 데모
   if (location.protocol === 'file:') {
     const demo = Array.from({ length: 120 }, (_, i) => Math.abs(Math.sin(i / 2.3)) * (i % 17 > 3 ? 1 : 0.1));
-    if (location.hash.startsWith('#weather=')) {
+    if (location.hash.startsWith('#news=')) {
+      window.addEventListener('load', () => window.YongNews.show(decodeURIComponent(location.hash.slice(6))));
+    } else if (location.hash.startsWith('#weather=')) {
       setState({ state: 'speaking', text: '강릉은 지금 맑고 18도예요.', env: [], frame: 0.04 });
       window.addEventListener('load', () => window.YongWeather.show(decodeURIComponent(location.hash.slice(9))));
     } else if (location.hash === '#login') { /* 위에서 처리 */ } else {
