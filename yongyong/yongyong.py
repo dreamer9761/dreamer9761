@@ -120,7 +120,8 @@ MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM
         "music": "genie",  # music: 기본 음악 서비스 genie | youtube
         "blog": "mon 10:00", "tistory": "",  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
         "evidence": "",  # evidence: 계정복구 증빙자료 폴더 (네이버 MYBOX 동기화 폴더 등)
-        "evidence_extra": []}  # 색인을 만든 다른 폴더들 (예: 계정복구 캡처 모음)
+        "evidence_extra": [],  # 색인을 만든 다른 폴더들 (예: 계정복구 캡처 모음)
+        "mail_dirs": []}  # 이메일 백업 폴더들 (네이버 메일 내려받기, NAS 백업)
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -391,6 +392,47 @@ def build_evidence_index(target=""):
         _indexing.release()
 
 
+MAIL_DIR_RE = re.compile(r"메일.{0,8}(백업\s*)?폴더.{0,8}(추가|설정|지정|골라|선택)")
+MAIL_INDEX_RE = re.compile(r"(메일|이메일).{0,8}(색인|인덱스).{0,8}(만들|해|업데이트|갱신|시작)")
+_mail_indexing = threading.Lock()
+
+
+def add_mail_folder():
+    """폴더 고르기 창으로 이메일 백업 폴더(네이버 메일 내려받은 곳, NAS 의 백업 폴더)를 추가."""
+    out = subprocess.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "이메일 백업(.eml/.mbox) 이 들어 있는 폴더를 골라 주세요 (NAS 는 Finder 에서 먼저 연결)")'],
+                         capture_output=True, text=True, timeout=300)
+    path = out.stdout.strip().rstrip("/")
+    if out.returncode != 0 or not path:
+        return speak("폴더 선택을 취소했어요.")
+    MODE["mail_dirs"] = list(dict.fromkeys([*MODE.get("mail_dirs", []), path]))
+    mode_route({})
+    speak(f"메일 백업 폴더로 {Path(path).name} 를 추가했어요. '메일 색인 만들어 줘' 라고 하시면 읽기 시작할게요.")
+
+
+def build_mail_index(announce=True):
+    """등록한 메일 백업 폴더들을 읽어 검색 색인(data/mail.db)을 만든다. 새로 생기거나 바뀐 파일만."""
+    dirs = [d for d in MODE.get("mail_dirs", []) if Path(d).is_dir()]
+    missing = [d for d in MODE.get("mail_dirs", []) if not Path(d).is_dir()]
+    if not dirs:
+        if announce:
+            speak("읽을 메일 백업 폴더가 없어요. '메일 백업 폴더 추가해 줘' 라고 하시거나, NAS 가 연결돼 있는지 확인해 주세요.")
+        return
+    if not _mail_indexing.acquire(blocking=False):
+        return speak("메일 색인을 이미 만들고 있어요.") if announce else None
+    try:
+        if announce:
+            speak("메일 백업을 읽어서 색인을 만들게요. 메일이 많으면 시간이 걸려요. 끝나면 알려 드릴게요.")
+        p = subprocess.run([sys.executable, str(HERE / "mailindex.py"), "build", *dirs], capture_output=True, text=True)
+        summary = (p.stdout.strip().splitlines() or ["색인을 만들지 못했어요."])[-1]
+        log(f"📨 {summary}" + (f" (연결 안 된 폴더: {', '.join(missing)})" if missing else ""))
+        if announce:
+            with BUSY, deaf():
+                speak(summary.replace("색인 완료:", "메일 색인을 다 만들었어요.") +
+                      (" 연결이 안 된 폴더가 있어요. NAS 가 연결됐는지 확인해 주세요." if missing else ""))
+    finally:
+        _mail_indexing.release()
+
+
 def pick_evidence_folder(command=""):
     """'증빙 폴더를 ○○로 설정해 줘' 면 그 이름의 하위 폴더를 찾고, 아니면 폴더 고르기 창을 띄운다."""
     m = re.search(r"폴더(?:를|는|을)?\s*['\"「]?(.+?)['\"」]?\s*(?:으로|로)\s*(?:설정|지정|바꿔)", command)
@@ -416,7 +458,7 @@ def system_prompt():
     ev = evidence_dir()
     persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
                .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD)).replace("{MAILINDEX}", str(HERE / "mailindex.py"))
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
@@ -692,7 +734,8 @@ def schedule_loop():
         now, today = time.strftime("%H:%M"), time.strftime("%Y-%m-%d")
         blog_day, _, blog_at = (MODE.get("blog") or "").partition(" ")
         jobs = [("alarm", MODE.get("alarm"), wake_up), ("briefing", BRIEFING_TIME, briefing),
-                ("blog", blog_at if WEEKDAYS[time.localtime().tm_wday] == blog_day else "", blog_week)]
+                ("blog", blog_at if WEEKDAYS[time.localtime().tm_wday] == blog_day else "", blog_week),
+                ("mailindex", "03:10" if MODE.get("mail_dirs") else "", lambda: build_mail_index(announce=False))]
         for name, at, job in jobs:
             if at and now == at and (name, today) not in done:
                 done.add((name, today))
@@ -989,6 +1032,13 @@ def handle_command(command, attachments=""):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
         return
+    if MAIL_INDEX_RE.search(command):
+        threading.Thread(target=build_mail_index, daemon=True).start()
+        return
+    if MAIL_DIR_RE.search(command):
+        if getattr(_local, "quiet", False):
+            return speak("메일 백업 폴더는 맥미니 앞에서 추가해 주세요.")
+        return add_mail_folder()
     if INDEX_RE.search(command):
         m = re.search(r"['\"「]?([^'\"」\s]+)['\"」]?\s*폴더", command)  # "계정복구캡처 폴더 색인 만들어 줘"
         target = m.group(1) if m and m.group(1) not in ("증빙", "증빙자료", "이", "그") else ""
