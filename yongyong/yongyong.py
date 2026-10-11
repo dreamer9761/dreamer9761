@@ -317,11 +317,11 @@ def evidence_dirs():
 EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,30}(설정|지정|바꿔|선택|골라)")
 
 
-def find_folder(name):
-    """지금 증빙 폴더·MYBOX 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
+def find_folder(name, extra_roots=()):
+    """지금 증빙 폴더·MYBOX (와 extra_roots) 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
     key = re.sub(r"\s+", "", name)
     roots = [r for r in [evidence_dir(), *map(str, Path.home().glob("Library/CloudStorage/*MYBOX*")),
-                         *map(str, Path.home().glob("MYBOX*"))] if r]
+                         *map(str, Path.home().glob("MYBOX*")), *extra_roots] if r]
     roots += [str(Path(r).parent) for r in roots]  # 지금 폴더의 옆 폴더도 찾도록
     for root in dict.fromkeys(roots):
         if key in re.sub(r"\s+", "", Path(root).name):
@@ -392,13 +392,27 @@ def build_evidence_index(target=""):
         _indexing.release()
 
 
-MAIL_DIR_RE = re.compile(r"메일.{0,8}(백업\s*)?폴더.{0,8}(추가|설정|지정|골라|선택)")
+MAIL_DIR_RE = re.compile(r"메일.{0,8}(백업\s*)?폴더.{0,30}(추가|설정|지정|골라|선택|등록)")
 MAIL_INDEX_RE = re.compile(r"(메일|이메일).{0,8}(색인|인덱스).{0,8}(만들|해|업데이트|갱신|시작)")
 _mail_indexing = threading.Lock()
 
 
-def add_mail_folder():
-    """폴더 고르기 창으로 이메일 백업 폴더(네이버 메일 내려받은 곳, NAS 의 백업 폴더)를 추가."""
+def add_mail_folder(command="", remote=False):
+    """'메일 백업 폴더를 ○○로 추가해 줘' 면 문서·다운로드·바탕화면·NAS(/Volumes)에서 그 이름의 폴더를 찾고,
+    아니면 폴더 고르기 창으로 이메일 백업 폴더(네이버 메일 내려받은 곳, NAS 의 백업 폴더)를 추가."""
+    m = re.search(r"폴더(?:를|는|을|에|로)?\s*['\"「]?(.+?)['\"」]?\s*(?:으로|로|를|을)?\s*(?:추가|설정|지정|등록)", command)
+    name = m.group(1).strip() if m else ""
+    if name and name not in ("메일", "메일 백업", "백업", "이메일"):
+        home = Path.home()
+        found = find_folder(name, extra_roots=[str(home / "Documents"), str(home / "Downloads"), str(home / "Desktop"),
+                                               *map(str, Path("/Volumes").glob("*"))])
+        if not found:
+            return speak(f"'{name}' 폴더를 찾지 못했어요. 문서·다운로드·바탕화면·NAS 에 있는지 확인해 주세요.")
+        MODE["mail_dirs"] = list(dict.fromkeys([*MODE.get("mail_dirs", []), found]))
+        mode_route({})
+        return speak(f"메일 백업 폴더로 {Path(found).name} 를 추가했어요. '메일 색인 만들어 줘' 라고 하시면 읽기 시작할게요.")
+    if remote:
+        return speak("폴더 고르기 창은 맥미니에서만 떠요. '메일 백업 폴더를 메일백업으로 추가해 줘' 처럼 폴더 이름을 말씀해 주세요.")
     out = subprocess.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "이메일 백업(.eml/.mbox) 이 들어 있는 폴더를 골라 주세요 (NAS 는 Finder 에서 먼저 연결)")'],
                          capture_output=True, text=True, timeout=300)
     path = out.stdout.strip().rstrip("/")
@@ -1036,9 +1050,7 @@ def handle_command(command, attachments=""):
         threading.Thread(target=build_mail_index, daemon=True).start()
         return
     if MAIL_DIR_RE.search(command):
-        if getattr(_local, "quiet", False):
-            return speak("메일 백업 폴더는 맥미니 앞에서 추가해 주세요.")
-        return add_mail_folder()
+        return add_mail_folder(command, remote=getattr(_local, "quiet", False))
     if INDEX_RE.search(command):
         m = re.search(r"['\"「]?([^'\"」\s]+)['\"」]?\s*폴더", command)  # "계정복구캡처 폴더 색인 만들어 줘"
         target = m.group(1) if m and m.group(1) not in ("증빙", "증빙자료", "이", "그") else ""
