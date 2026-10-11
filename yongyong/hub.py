@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """셀러닥터 허브(hub.sellerdoctorai.com) 읽기: 대표님 사파리에 로그인된 허브에서 고객의 결제 금액·계정 현황을 확인한다.
+  python3 hub.py current             지금 사파리에 열린 허브 화면 읽기
   python3 hub.py links [주소]        페이지의 메뉴·링크 목록 (주소 생략하면 허브 첫 화면)
   python3 hub.py read 주소           페이지 글자 읽기
   python3 hub.py search 검색어 [주소]  페이지의 검색 칸에 검색어를 넣고 결과 읽기 (예: 크몽 닉네임, 계정 번호)
@@ -58,6 +59,31 @@ def _note_login(text):
     return text
 
 
+_CURRENT = r"""
+tell application "Safari"
+  repeat with w in (every window)
+    set t to current tab of w
+    if URL of t contains "sellerdoctorai.com" then return (URL of t) & linefeed & (do JavaScript "document.body.innerText" in t)
+  end repeat
+  repeat with w in (every window)
+    repeat with t in (every tab of w)
+      if URL of t contains "sellerdoctorai.com" then return (URL of t) & linefeed & (do JavaScript "document.body.innerText" in t)
+    end repeat
+  end repeat
+end tell
+return ""
+"""
+
+
+def current():
+    """지금 사파리에 열려 있는 허브 화면(앞에 보이는 탭 우선)의 주소와 글자."""
+    out = _osa(_CURRENT)
+    if not out:
+        return "사파리에 허브(sellerdoctorai.com) 탭이 없어요."
+    url, _, body = out.partition("\n")
+    return _note_login("[지금 열린 허브 화면] %s\n%s" % (url, body[:MAX_CHARS]))
+
+
 def read(url):
     return _note_login(_session(url, lambda w: _osa(_RUN_JS, w, _JS_TEXT))[:MAX_CHARS])
 
@@ -87,7 +113,9 @@ def main(argv):
         print(__doc__)
         return 1
     cmd, rest = argv[0], argv[1:]
-    if cmd == "links":
+    if cmd == "current":
+        print(current())
+    elif cmd == "links":
         print(links(rest[0] if rest else BASE))
     elif cmd == "read" and rest:
         print(read(rest[0]))
