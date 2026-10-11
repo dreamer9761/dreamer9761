@@ -117,7 +117,8 @@ SETTINGS = DATA / "settings.json"
 # input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
 MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
         "music": "genie",  # music: 기본 음악 서비스 genie | youtube
-        "blog": "mon 10:00", "tistory": ""}  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
+        "blog": "mon 10:00", "tistory": "",  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
+        "evidence": ""}  # evidence: 계정복구 증빙자료 폴더 (네이버 MYBOX 동기화 폴더 등)
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -296,9 +297,34 @@ def deaf():
         muted.clear()
 
 
+def evidence_dir():
+    """증빙자료 폴더: 설정한 폴더, 없으면 네이버 MYBOX 동기화 폴더를 자동으로 찾는다."""
+    cands = [MODE.get("evidence", "")] + [str(p) for p in (
+        *Path.home().glob("MYBOX*"), *Path.home().glob("Library/CloudStorage/*MYBOX*"),
+        *Path.home().glob("Documents/MYBOX*"), *Path.home().glob("네이버 MYBOX*"))]
+    return next((c for c in cands if c and Path(c).is_dir()), "")
+
+
+EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,8}(설정|지정|바꿔|선택|골라)")
+
+
+def pick_evidence_folder():
+    """맥에서 폴더 고르기 창을 띄워 증빙자료 폴더를 정한다."""
+    out = subprocess.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "계정복구 증빙자료가 있는 폴더를 골라 주세요 (예: MYBOX 안의 폴더)")'],
+                         capture_output=True, text=True, timeout=300)
+    path = out.stdout.strip().rstrip("/")
+    if out.returncode != 0 or not path:
+        return speak("폴더 선택을 취소했어요.")
+    MODE["evidence"] = path
+    mode_route({})
+    speak(f"증빙자료 폴더를 {Path(path).name} 로 정했어요. 상담할 때 이 폴더 자료를 참고할게요.")
+
+
 def system_prompt():
     memo = MEMO.read_text(encoding="utf-8").strip() if MEMO.exists() else "(아직 없음)"
-    persona = (PERSONA.replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
+    ev = evidence_dir()
+    persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
+               .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
                .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py"))
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
@@ -320,6 +346,7 @@ class Brain:
             "--append-system-prompt", system_prompt(),
             "--permission-mode", "acceptEdits",
             "--add-dir", str(DATA),
+            *(["--add-dir", ev] if (ev := evidence_dir()) else []),
         ]
         if tools:
             cmd += ["--allowedTools", ALLOWED_TOOLS, "--disallowedTools", DISALLOWED_TOOLS]
@@ -871,6 +898,10 @@ def handle_command(command, attachments=""):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
         return
+    if EVIDENCE_RE.search(command):
+        if getattr(_local, "quiet", False):
+            return speak("증빙 폴더는 맥미니 앞에서 설정해 주세요.")
+        return pick_evidence_folder()
     if TEMPLATE_EDIT_RE.search(command):
         FACE.panel("templates")
         speak("화면에 자주 쓰는 문구 칸을 띄웠어요. 문구를 붙여넣고 저장해 주세요.")
