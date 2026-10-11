@@ -494,6 +494,7 @@
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);
       else if (msg.panel === 'progress') window.YongProgress.jobs(msg.jobs);
+      else if (msg.panel === 'file') window.YongChat.addFile(msg);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
       else setState(msg);

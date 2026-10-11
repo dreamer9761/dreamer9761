@@ -47,6 +47,30 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // 용용이가 만든 파일: [엑셀][워드][PDF] 버튼 (누르면 그 형식으로 바꿔서 내려받음)
+  const FMT = { xlsx: '엑셀', docx: '워드', pdf: 'PDF', csv: 'CSV', md: '텍스트', txt: '텍스트', pptx: '파워포인트', hwp: '한글', zip: '압축', png: '그림', jpg: '그림' };
+  function addFile(f) {
+    const log = $('chat-log');
+    const div = document.createElement('div');
+    div.className = 'msg yongyong file';
+    const name = document.createElement('div');
+    name.className = 'file-name';
+    name.textContent = '📄 ' + f.name;
+    div.appendChild(name);
+    const row = document.createElement('div');
+    row.className = 'file-btns';
+    for (const fmt of f.formats) {
+      const a = document.createElement('a');
+      a.href = `/download/${encodeURIComponent(f.id)}/${fmt}`;
+      a.textContent = (FMT[fmt] || fmt.toUpperCase()) + ' 받기';
+      a.setAttribute('download', f.name.replace(/\.\w+$/, '') + '.' + fmt);
+      row.appendChild(a);
+    }
+    div.appendChild(row);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
   // 첨부 파일: 사진은 휴대폰 원본이 커서 긴 쪽 2000px JPEG 로 줄여서 보낸다
   let files = [];
   const toB64 = (blob) => new Promise((ok, bad) => {
@@ -111,5 +135,5 @@
     });
     apply(mode);
   });
-  window.YongChat = { apply, add };
+  window.YongChat = { addFile, apply, add };
 })();

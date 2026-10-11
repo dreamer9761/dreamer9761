@@ -19,6 +19,9 @@ fi
 
 [[ -f .env ]] && source .env
 [[ -x .venv/bin/python ]] || { echo "먼저 ./install.sh 를 실행하세요."; exit 1; }
+# 새로 추가된 부품이 없으면 설치 (git 으로 직접 받아도 빠지지 않게)
+.venv/bin/python -c "import openpyxl, docx, reportlab" 2>/dev/null \
+  || uv pip install -q --python .venv/bin/python -r requirements.txt || true
 
 # 2) 바탕화면 앱이 없으면 만들기
 APP="$HOME/Desktop/용용이.app"

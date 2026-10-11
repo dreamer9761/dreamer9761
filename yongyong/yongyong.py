@@ -88,6 +88,7 @@ ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
         "git status", "git diff", "git log", "git add", "git commit", "git checkout", "git branch", "git clone",
         "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "curl",
         "textutil", "mdls", "mdfind", "file",  # 맥 기본 문서 변환·정보 보기·스포트라이트 내용 검색 (읽기용)
+        sys.executable,  # 용용이 파이썬 (엑셀·워드 만들기용 openpyxl·python-docx 가 깔려 있음)
     ]),
 ]))
 DISALLOWED_TOOLS = ",".join([
@@ -555,7 +556,7 @@ def system_prompt():
     ev = evidence_dir()
     persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
                .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD)).replace("{MAILINDEX}", str(HERE / "mailindex.py"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD)).replace("{MAILINDEX}", str(HERE / "mailindex.py")).replace("{PY}", sys.executable)
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
@@ -1105,6 +1106,49 @@ def fetch_templates():
 MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
 
 
+DOWNLOADS = Path.home() / "Downloads"
+OFFER_EXT = {".xlsx", ".csv", ".docx", ".pdf", ".md", ".txt", ".pptx", ".hwp", ".zip", ".png", ".jpg"}
+
+
+def ask_and_offer_files(prompt):
+    """Claude 에게 묻고 대답한 뒤, 그동안 다운로드 폴더에 새로 만든 파일이 있으면 대화창에 다운로드 버튼으로 띄운다."""
+    start = time.time() - 2
+    speak(show_panels(BRAIN.ask(prompt)), then="listening")
+    try:
+        new = [f for f in DOWNLOADS.iterdir()
+               if f.is_file() and f.suffix.lower() in OFFER_EXT and not f.name.startswith(".") and f.stat().st_mtime >= start]
+    except OSError:
+        return
+    for f in sorted(new, key=lambda f: f.stat().st_mtime)[:5]:
+        FACE.offer_file(f)
+
+
+FILE_OFFER_RE = re.compile(r"(파일|엑셀|워드|pdf|문서).{0,15}(대화창|채팅|다운로드\s*버튼|받게|띄워)", re.I)
+
+
+def offer_existing_file(command):
+    """'이번주 할일 파일 대화창에 띄워줘' → 다운로드 폴더에서 이름이 맞는 파일(없으면 가장 최근 파일)을 버튼으로 띄운다."""
+    norm = lambda t: unicodedata.normalize("NFC", re.sub(r"[\s_\-]+", "", t)).lower()  # noqa: E731
+    stop = ("파일", "엑셀", "워드", "pdf", "문서", "대화창", "채팅", "다운로드", "버튼", "받게", "받을", "띄워", "올려", "보내", "해줘", "해 줘", "만든", "방금", "그")
+    words = [norm(w) for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", command) if not norm(w).startswith(stop)]
+    kinds = {k: v for k, v in (("엑셀", (".xlsx", ".csv")), ("워드", (".docx",)), ("pdf", (".pdf",))) if k in command.lower()}
+    try:
+        files = sorted((f for f in DOWNLOADS.iterdir() if f.is_file() and f.suffix.lower() in OFFER_EXT and not f.name.startswith(".")),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        return speak("다운로드 폴더를 볼 수 없어요.")
+    if kinds:
+        files = [f for f in files if f.suffix.lower() in sum(kinds.values(), ())] or files
+    picked = [f for f in files if words and all(w in norm(f.stem) for w in words)][:3] or files[:1]
+    if not picked:
+        return speak("다운로드 폴더에 보낼 파일이 없어요.")
+    for f in picked:
+        FACE.offer_file(f)
+    how = ("엑셀, 워드, PDF 중에 골라서 받으세요." if picked[0].suffix.lower() in (".xlsx", ".csv", ".docx", ".md", ".txt")
+           else "버튼을 누르면 받아져요.")
+    speak(f"{picked[0].name} 를 대화창에 올렸어요. {how}")
+
+
 def handle_command(command, attachments=""):
     """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출). attachments: 첨부 파일 안내문.
     도중에 오류가 나도 대답 없이 조용히 끝나지 않도록 오류를 터미널에 남기고 말해 준다."""
@@ -1119,7 +1163,7 @@ def handle_command(command, attachments=""):
 def _handle_command(command, attachments=""):
     if attachments:  # 첨부가 있으면 단축 명령(음악·알람 등) 대신 바로 Claude 가 파일을 보고 대답
         speak("네, 첨부한 파일을 확인할게요.", then="thinking", chat=False)
-        speak(show_panels(BRAIN.ask(command + attachments)), then="listening")
+        ask_and_offer_files(command + attachments)
         return
     if LOGIN_RE.search(command):
         speak("화면에 Claude 계정 연결 창을 띄웠어요. 로그인 시작 버튼을 눌러 주세요.", then="login")
@@ -1139,6 +1183,8 @@ def _handle_command(command, attachments=""):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
         return
+    if FILE_OFFER_RE.search(command):
+        return offer_existing_file(command)
     if NAVER_RE.search(command):
         threading.Thread(target=sync_naver_mail, daemon=True).start()
         return
@@ -1176,7 +1222,7 @@ def _handle_command(command, attachments=""):
         except kmong.SafariError as e:
             speak(str(e))
             return
-    speak(show_panels(BRAIN.ask(command)), then="listening")
+    ask_and_offer_files(command)
 
 
 def default_region():
@@ -1456,6 +1502,7 @@ def main():
     rate = int(info["default_samplerate"])
     log(f"마이크: {info['name']} ({rate}Hz) / 음성인식: {WHISPER_MODEL} / 작업 폴더: {WORKDIR}")
     if SHOW_FACE:
+        FACE.converter = lambda path, fmt: __import__("convert").convert(path, fmt)
         FACE.routes["/login/start"] = login_start
         FACE.routes["/login/token"] = login_token
         FACE.routes["/news"] = news_route

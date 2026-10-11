@@ -216,3 +216,10 @@ html.remote .chat-mic { display: block; }
 .notice-head { font-size: 14px; }
 .notice-head span { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .notice-text { min-height: 110px; }
+
+/* 용용이가 만든 파일: 엑셀·워드·PDF 받기 버튼 */
+.chat-log .msg.file .file-name { font-weight: 600; word-break: break-all; }
+.chat-log .msg.file .file-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chat-log .msg.file .file-btns a { padding: 5px 11px; border-radius: 9px; background: var(--scale); color: #0d1226;
+  font-size: 13px; font-weight: 600; text-decoration: none; }
+.chat-log .msg.file .file-btns a:active { opacity: .7; }

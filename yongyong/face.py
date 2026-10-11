@@ -27,6 +27,18 @@ class Face:
         self._lock = threading.Lock()
         self._last = json.dumps({"state": "idle"})
         self.routes = {}  # POST 경로 → 함수(dict) -> dict
+        self.downloads = {}  # 대화창 다운로드 버튼: 아무도 추측 못 하는 id → 파일 경로 (등록한 파일만 내려받을 수 있음)
+        self.converter = None  # (경로, "xlsx"|"docx"|"pdf") -> 바꾼 파일 경로
+
+    def offer_file(self, path):
+        """용용이가 만든 파일을 대화창에 [엑셀][워드][PDF] 다운로드 버튼으로 띄운다."""
+        import secrets
+        fid = secrets.token_urlsafe(16)
+        self.downloads[fid] = str(path)
+        ext = Path(path).suffix.lower().lstrip(".")
+        convertible = ext in ("xlsx", "csv", "docx", "md", "txt")
+        self.panel("file", id=fid, name=Path(path).name,
+                   formats=["xlsx", "docx", "pdf"] if convertible else [ext])
 
     def show(self, state, **extra):
         """state: idle | listening | thinking | speaking | login"""
@@ -121,6 +133,11 @@ class Face:
                         self.send_error(401)
                         return
                     return self._events()
+                if self.path.startswith("/download/"):
+                    if self._is_remote() and not remote.valid(self._token()):
+                        self.send_error(401)
+                        return
+                    return self._download()
                 name = Path(self.path.split("?")[0]).name or "index.html"  # face 폴더 안 파일만
                 file = FACE_DIR / name
                 if file.suffix not in TYPES or not file.is_file():
@@ -131,6 +148,30 @@ class Face:
                 ctype = TYPES[file.suffix]
                 self.send_header("Content-Type", ctype if ctype.startswith("image/") else f"{ctype}; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")  # 업데이트 후 옛 화면이 남지 않도록
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _download(self):
+                from urllib.parse import quote
+                parts = self.path.split("?")[0].split("/")  # /download/<id>/<형식>
+                src = face.downloads.get(parts[2]) if len(parts) == 4 else None
+                if not src or not Path(src).is_file():
+                    self.send_error(404, "File not found")
+                    return
+                try:
+                    out = face.converter(src, parts[3]) if face.converter else Path(src)
+                except Exception as e:
+                    print(f"(파일 변환 실패) {src} → {parts[3]}: {e}", flush=True)
+                    self.send_error(500, "Conversion failed")
+                    return
+                body = Path(out).read_bytes()
+                ctype = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                         "pdf": "application/pdf"}.get(Path(out).suffix.lstrip("."), "application/octet-stream")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(Path(out).name))
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
