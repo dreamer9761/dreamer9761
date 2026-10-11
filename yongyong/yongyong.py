@@ -317,12 +317,15 @@ def evidence_dirs():
 EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,30}(설정|지정|바꿔|선택|골라)")
 
 
-def find_folder(name, extra_roots=()):
-    """지금 증빙 폴더·MYBOX (와 extra_roots) 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
+def find_folder(name, only_roots=()):
+    """지금 증빙 폴더·MYBOX (only_roots 를 주면 그 폴더들만) 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
     key = re.sub(r"\s+", "", name)
-    roots = [r for r in [evidence_dir(), *map(str, Path.home().glob("Library/CloudStorage/*MYBOX*")),
-                         *map(str, Path.home().glob("MYBOX*")), *extra_roots] if r]
-    roots += [str(Path(r).parent) for r in roots]  # 지금 폴더의 옆 폴더도 찾도록
+    if only_roots:
+        roots = list(only_roots)
+    else:
+        roots = [r for r in [evidence_dir(), *map(str, Path.home().glob("Library/CloudStorage/*MYBOX*")),
+                             *map(str, Path.home().glob("MYBOX*"))] if r]
+        roots += [str(Path(r).parent) for r in roots]  # 지금 폴더의 옆 폴더도 찾도록
     for root in dict.fromkeys(roots):
         if key in re.sub(r"\s+", "", Path(root).name):
             return root
@@ -404,8 +407,9 @@ def add_mail_folder(command="", remote=False):
     name = m.group(1).strip() if m else ""
     if name and name not in ("메일", "메일 백업", "백업", "이메일"):
         home = Path.home()
-        found = find_folder(name, extra_roots=[str(home / "Documents"), str(home / "Downloads"), str(home / "Desktop"),
-                                               *map(str, Path("/Volumes").glob("*"))])
+        speak(f"'{name}' 폴더를 찾아볼게요.", then="thinking", chat=False)
+        found = find_folder(name, only_roots=[str(home / "Documents"), str(home / "Downloads"), str(home / "Desktop"),
+                                              *(str(v) for v in Path("/Volumes").glob("*") if v.name != "Macintosh HD")])
         if not found:
             return speak(f"'{name}' 폴더를 찾지 못했어요. 문서·다운로드·바탕화면·NAS 에 있는지 확인해 주세요.")
         MODE["mail_dirs"] = list(dict.fromkeys([*MODE.get("mail_dirs", []), found]))
@@ -1023,7 +1027,17 @@ MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\
 
 
 def handle_command(command, attachments=""):
-    """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출). attachments: 첨부 파일 안내문."""
+    """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출). attachments: 첨부 파일 안내문.
+    도중에 오류가 나도 대답 없이 조용히 끝나지 않도록 오류를 터미널에 남기고 말해 준다."""
+    try:
+        return _handle_command(command, attachments)
+    except Exception as e:
+        import traceback
+        log("⚠️ 명령 처리 중 오류:\n" + traceback.format_exc())
+        speak(f"앗, 처리하다가 오류가 났어요. ({type(e).__name__}: {str(e)[:80]})", then="listening")
+
+
+def _handle_command(command, attachments=""):
     if attachments:  # 첨부가 있으면 단축 명령(음악·알람 등) 대신 바로 Claude 가 파일을 보고 대답
         speak("네, 첨부한 파일을 확인할게요.", then="thinking", chat=False)
         speak(show_panels(BRAIN.ask(command + attachments)), then="listening")
