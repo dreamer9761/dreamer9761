@@ -370,6 +370,7 @@ def build_evidence_index(target=""):
         for i in range(0, len(todo), 8):
             batch = todo[i:i + 8]
             log(f"🗂️ 증빙 색인 {i + 1}~{i + len(batch)} / {len(todo)}")
+            FACE.progress("evidence", f"증빙 색인 {i}/{len(todo)}", i * 100 // len(todo))
             answer = Brain(workdir=DATA, remember=False).ask(
                 "다음 증빙 항목들을 하나씩 열어 봐. 폴더면 파일 목록을 보고 핵심 파일만 최대 4개, 파일(주로 계정복구·제재 화면 캡처)이면 그 파일을 읽어. "
                 f"사진·PDF 는 Read, 워드·엑셀은 python3 {HERE / 'docread.py'}. 그리고 JSON 배열 한 줄로만 대답해 (다른 말 금지):\n"
@@ -395,6 +396,7 @@ def build_evidence_index(target=""):
             done = sum(1 for k in index if k.startswith(Path(root).name + "/"))
             speak(f"{Path(root).name} 색인을 다 만들었어요. {done}개 항목을 사유와 결과별로 찾을 수 있어요.")
     finally:
+        FACE.progress("evidence")
         _indexing.release()
 
 
@@ -448,14 +450,26 @@ def build_mail_index(announce=True):
     try:
         if announce:
             speak("메일 백업을 읽어서 색인을 만들게요. 메일이 많으면 시간이 걸려요. 끝나면 알려 드릴게요.")
-        p = subprocess.run([sys.executable, str(HERE / "mailindex.py"), "build", *dirs], capture_output=True, text=True)
-        summary = (p.stdout.strip().splitlines() or ["색인을 만들지 못했어요."])[-1]
+        FACE.progress("mail", "메일 색인 준비 중")
+        p = subprocess.Popen([sys.executable, str(HERE / "mailindex.py"), "build", *dirs],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        lines = []
+        for line in p.stdout:
+            if line.startswith("PROGRESS "):
+                pct, mails = map(int, line.split()[1:3])
+                FACE.progress("mail", f"메일 색인 중 · {mails:,}통 읽음", pct)
+            elif line.strip():
+                lines.append(line.strip())
+        p.wait()
+        FACE.progress("mail")
+        summary = (lines or ["색인을 만들지 못했어요."])[-1]
         log(f"📨 {summary}" + (f" (연결 안 된 폴더: {', '.join(missing)})" if missing else ""))
         if announce:
             with BUSY, deaf():
                 speak(summary.replace("색인 완료:", "메일 색인을 다 만들었어요.") +
                       (" 연결이 안 된 폴더가 있어요. NAS 가 연결됐는지 확인해 주세요." if missing else ""))
     finally:
+        FACE.progress("mail")
         _mail_indexing.release()
 
 

@@ -14,6 +14,7 @@
 <script src="news.js"></script>
 <script src="report.js"></script>
 <script src="chat.js"></script>
+<script src="progress.js"></script>
 <script src="phonemic.js"></script>
 <script src="dash.js"></script>
 <script src="draft.js"></script>
@@ -47,6 +48,21 @@
     overflow: hidden; user-select: none;
   }
   .stage { position: relative; width: min(92vw, 420px); }
+  /* 머리 위 작업 진행도 말풍선 */
+  #progress { position: absolute; left: 50%; top: -6px; transform: translate(-50%, -100%); z-index: 5;
+    min-width: 190px; max-width: 96vw; white-space: nowrap; padding: 9px 13px; border-radius: 14px;
+    background: rgba(255,255,255,.95); color: #1d2233; font-size: 14px; line-height: 1.35;
+    box-shadow: 0 6px 20px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  #progress.show { opacity: 1; }
+  .stage.has-pg { margin-top: var(--pg-h, 0px); }  /* 말풍선이 화면 위로 잘리지 않게 용용이를 살짝 내림 */
+  #progress::after { content: ""; position: absolute; left: 50%; bottom: -9px; margin-left: -9px;
+    border: 9px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.95); }
+  #progress .pg-row + .pg-row { margin-top: 7px; }
+  #progress b { color: var(--scale-dark); }
+  #progress .pg-bar { height: 7px; margin-top: 5px; border-radius: 4px; background: #e3e7f5; overflow: hidden; }
+  #progress .pg-bar i { display: block; height: 100%; border-radius: 4px; background: var(--scale); transition: width .4s; }
+  #progress .pg-bar.busy i { width: 35% !important; animation: pgbusy 1.3s ease-in-out infinite; }
+  @keyframes pgbusy { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
   svg { width: 100%; height: auto; display: block; overflow: visible; }
 
   /* 전체가 살짝 둥실둥실 */
@@ -136,6 +152,7 @@
 <body class="idle">
 <div class="col-char">
 <div class="stage">
+<div id="progress" aria-live="polite"></div>
 <svg viewBox="0 0 400 420" aria-label="용용이">
   <defs>
     <radialGradient id="g-scale" cx="40%" cy="30%" r="80%">
@@ -389,6 +406,7 @@
   function setState(msg) {
     clearTimeout(listenTimer);
     body.className = msg.state;
+    window.YongProgress.state(msg.state);
     status.textContent = LABELS[msg.state] || '';
     if (msg.state === 'speaking') {
       subtitle.textContent = msg.text || '';
@@ -475,6 +493,7 @@
       else if (msg.panel === 'dash') msg.on ? window.YongDash.show() : window.YongDash.hide();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);
+      else if (msg.panel === 'progress') window.YongProgress.jobs(msg.jobs);
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
       else setState(msg);

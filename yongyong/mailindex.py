@@ -93,30 +93,43 @@ def messages(path):
 def build(folders):
     con, added, files = db(), 0, 0
     seen_ids = {r[0] for r in con.execute("SELECT msgid FROM mail WHERE msgid != ''")}
-    for folder in folders:
-        for path in Path(folder).expanduser().rglob("*"):
-            if path.suffix.lower() not in MAIL_EXT or not path.is_file() or path.name.startswith("."):
-                continue
-            mtime = path.stat().st_mtime
-            old = con.execute("SELECT mtime FROM files WHERE path = ?", (str(path),)).fetchone()
-            if old and old[0] == mtime:
-                continue
-            con.execute("DELETE FROM mail WHERE path = ?", (str(path),))
-            try:
-                for msg in messages(path):
-                    r = row_of(msg, path)
-                    if r[7] and r[7] in seen_ids:  # 같은 메일이 여러 백업에 있으면 한 번만
-                        continue
-                    seen_ids.add(r[7])
-                    con.execute("INSERT INTO mail VALUES (?,?,?,?,?,?,?,?)", r)
-                    added += 1
-            except Exception as e:  # 깨진 파일은 건너뜀
-                print("(건너뜀) %s: %s" % (path, e))
-            con.execute("INSERT OR REPLACE INTO files VALUES (?, ?)", (str(path), mtime))
-            files += 1
-            if files % 200 == 0:
-                con.commit()
-                print("... 파일 %d개, 메일 %d통" % (files, added), flush=True)
+    paths = [path for folder in folders for path in Path(folder).expanduser().rglob("*")
+             if path.suffix.lower() in MAIL_EXT and not path.name.startswith(".") and path.is_file()]
+    sizes = [path.stat().st_size for path in paths]
+    total_bytes, done_bytes, shown = max(sum(sizes), 1), 0, None
+
+    def progress(extra=0):  # 용용이가 캐릭터 위 말풍선에 % 로 보여 줌 (파일 크기 기준)
+        nonlocal shown
+        pct = min(99, (done_bytes + extra) * 100 // total_bytes)
+        if (pct, added // 500) != shown:
+            shown = (pct, added // 500)
+            print("PROGRESS %d %d" % (pct, added), flush=True)
+
+    for path, size in zip(paths, sizes):
+        progress()
+        done_bytes += size
+        mtime = path.stat().st_mtime
+        old = con.execute("SELECT mtime FROM files WHERE path = ?", (str(path),)).fetchone()
+        if old and old[0] == mtime:
+            continue
+        con.execute("DELETE FROM mail WHERE path = ?", (str(path),))
+        try:
+            for msg in messages(path):
+                r = row_of(msg, path)
+                if r[7] and r[7] in seen_ids:  # 같은 메일이 여러 백업에 있으면 한 번만
+                    continue
+                seen_ids.add(r[7])
+                con.execute("INSERT INTO mail VALUES (?,?,?,?,?,?,?,?)", r)
+                added += 1
+                if added % 500 == 0:
+                    progress(-size // 2)  # 큰 백업 파일 하나를 오래 읽을 때도 메일 수가 올라가게
+        except Exception as e:  # 깨진 파일은 건너뜀
+            print("(건너뜀) %s: %s" % (path, e))
+        con.execute("INSERT OR REPLACE INTO files VALUES (?, ?)", (str(path), mtime))
+        files += 1
+        if files % 200 == 0:
+            con.commit()
+            print("... 파일 %d개, 메일 %d통" % (files, added), flush=True)
     con.commit()
     total = con.execute("SELECT count(*) FROM mail").fetchone()[0]
     print("색인 완료: 새로 읽은 파일 %d개, 추가된 메일 %d통, 전체 %d통" % (files, added, total))

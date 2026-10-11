@@ -43,6 +43,19 @@ class Face:
             for q in self._clients:
                 q.put(msg)
 
+    def progress(self, key, label="", pct=None):
+        """캐릭터 위 말풍선에 작업 진행도 표시. pct: 0~100 (None 이면 % 없이 '하는 중'), label="" 이면 그 작업 말풍선을 지운다."""
+        with self._lock:
+            jobs = getattr(self, "_jobs", {})
+            if label:
+                jobs[key] = {"label": label, "pct": None if pct is None else max(0, min(100, int(pct)))}
+            else:
+                jobs.pop(key, None)
+            self._jobs = jobs
+            msg = json.dumps({"panel": "progress", "jobs": jobs}, ensure_ascii=False)
+            for q in self._clients:
+                q.put(msg)
+
     def chat(self, who, text):
         """화면 대화창에 한 줄 추가 (who: me | yongyong)."""
         self.panel("chat", who=who, text=text)
@@ -161,6 +174,8 @@ class Face:
                     q.put(face._last)
                     if getattr(face, "_mode", None):
                         q.put(face._mode)
+                    if getattr(face, "_jobs", None):  # 진행 중인 작업 말풍선도 새 창에 보여 준다
+                        q.put(json.dumps({"panel": "progress", "jobs": face._jobs}, ensure_ascii=False))
                 try:
                     while True:
                         try:
