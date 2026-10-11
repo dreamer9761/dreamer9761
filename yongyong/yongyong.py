@@ -305,11 +305,35 @@ def evidence_dir():
     return next((c for c in cands if c and Path(c).is_dir()), "")
 
 
-EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,8}(설정|지정|바꿔|선택|골라)")
+EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,30}(설정|지정|바꿔|선택|골라)")
 
 
-def pick_evidence_folder():
-    """맥에서 폴더 고르기 창을 띄워 증빙자료 폴더를 정한다."""
+def find_folder(name):
+    """지금 증빙 폴더·MYBOX 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
+    key = re.sub(r"\s+", "", name)
+    roots = [r for r in [evidence_dir(), *map(str, Path.home().glob("Library/CloudStorage/*MYBOX*")),
+                         *map(str, Path.home().glob("MYBOX*"))] if r]
+    roots += [str(Path(r).parent) for r in roots]  # 지금 폴더의 옆 폴더도 찾도록
+    for root in dict.fromkeys(roots):
+        if key in re.sub(r"\s+", "", Path(root).name):
+            return root
+        for depth in ("*", "*/*", "*/*/*"):
+            for d in Path(root).glob(depth):
+                if d.is_dir() and key in re.sub(r"\s+", "", d.name):
+                    return str(d)
+    return ""
+
+
+def pick_evidence_folder(command=""):
+    """'증빙 폴더를 ○○로 설정해 줘' 면 그 이름의 하위 폴더를 찾고, 아니면 폴더 고르기 창을 띄운다."""
+    m = re.search(r"폴더(?:를|는|을)?\s*['\"「]?(.+?)['\"」]?\s*(?:으로|로)\s*(?:설정|지정|바꿔)", command)
+    if m and m.group(1).strip() not in ("증빙", "증빙자료"):
+        found = find_folder(m.group(1).strip())
+        if not found:
+            return speak(f"'{m.group(1).strip()}' 폴더를 찾지 못했어요. MYBOX 동기화가 끝났는지 확인해 주세요.")
+        MODE["evidence"] = found
+        mode_route({})
+        return speak(f"증빙자료 폴더를 {Path(found).name} 로 정했어요.")
     out = subprocess.run(["osascript", "-e", 'POSIX path of (choose folder with prompt "계정복구 증빙자료가 있는 폴더를 골라 주세요 (예: MYBOX 안의 폴더)")'],
                          capture_output=True, text=True, timeout=300)
     path = out.stdout.strip().rstrip("/")
@@ -901,7 +925,7 @@ def handle_command(command, attachments=""):
     if EVIDENCE_RE.search(command):
         if getattr(_local, "quiet", False):
             return speak("증빙 폴더는 맥미니 앞에서 설정해 주세요.")
-        return pick_evidence_folder()
+        return pick_evidence_folder(command)
     if TEMPLATE_EDIT_RE.search(command):
         FACE.panel("templates")
         speak("화면에 자주 쓰는 문구 칸을 띄웠어요. 문구를 붙여넣고 저장해 주세요.")
