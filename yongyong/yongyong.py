@@ -476,9 +476,12 @@ def sync_naver_mail(announce=True):
         p.wait()
         summary = (lines or ["네이버 메일을 가져오지 못했어요."])[-1]
         log(f"📬 {summary}")
-        if announce or p.returncode:
+        failed = p.returncode != 0
+        # 30분마다 자동으로 할 때 실패하면, 같은 말을 계속 반복하지 않도록 처음 한 번만 알려 준다
+        if announce or (failed and not getattr(sync_naver_mail, "warned", False)):
             with BUSY, deaf():
                 speak(summary)
+        sync_naver_mail.warned = failed
     finally:
         FACE.progress("naver")
         _naver_syncing.release()

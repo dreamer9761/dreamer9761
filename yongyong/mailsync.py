@@ -33,8 +33,8 @@ def connect(user):
     try:
         con.login(user.split("@")[0], password(user))
     except imaplib.IMAP4.error as e:
-        sys.exit("네이버 메일 로그인 실패: %s\n(네이버 메일 환경설정에서 IMAP 을 '사용함'으로 했는지, "
-                 "2단계 인증을 쓰면 애플리케이션 비밀번호를 넣었는지 확인해 주세요)" % e)
+        print("(로그인 실패 이유: %s)" % e, flush=True)
+        sys.exit("네이버 메일에 로그인이 안 돼요. 애플리케이션 비밀번호를 지웠거나 바꿨다면 naver_mail_setup.sh 를 다시 실행해 주세요.")
     return con
 
 
