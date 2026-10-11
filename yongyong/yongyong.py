@@ -437,6 +437,57 @@ def add_mail_folder(command="", remote=False):
     speak(f"메일 백업 폴더로 {Path(path).name} 를 추가했어요. '메일 색인 만들어 줘' 라고 하시면 읽기 시작할게요.")
 
 
+NAVER_MAIL = DATA / "naver_mail.json"   # {"id": 네이버 아이디} (비밀번호는 키체인에만, naver_mail_setup.sh 로 설정)
+NAVER_RE = re.compile(r"네이버\s*메일.{0,10}(연동|가져와|동기화|불러와|업데이트|새로\s*고침|확인|색인)")
+NAVER_SYNC_SEC = 1800
+_naver_syncing = threading.Lock()
+
+
+def sync_naver_mail(announce=True):
+    """네이버 메일(IMAP, 읽기 전용)에서 새 메일을 가져와 메일 색인에 넣는다. 처음엔 전체, 다음부터는 새 메일만."""
+    user = _json_file(NAVER_MAIL, {}).get("id", "")
+    if not user:
+        if announce:
+            speak("네이버 메일이 아직 연결 안 됐어요. 맥미니 터미널에서 naver_mail_setup.sh 를 한 번 실행해 주세요.")
+        return
+    if not _naver_syncing.acquire(blocking=False):
+        return speak("네이버 메일을 이미 가져오고 있어요.") if announce else None
+    try:
+        if announce:
+            speak("네이버 메일을 가져올게요. 처음에는 메일이 많아서 시간이 걸려요. 끝나면 알려 드릴게요.")
+        FACE.progress("naver", "네이버 메일 연결 중")
+        p = subprocess.Popen([sys.executable, str(HERE / "mailsync.py"), "sync", user],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        lines = []
+        for line in p.stdout:
+            if line.startswith("PROGRESS "):
+                pct, mails = map(int, line.split()[1:3])
+                if announce or mails:  # 30분마다 자동으로 할 때는 새 메일이 있을 때만 말풍선
+                    FACE.progress("naver", f"네이버 메일 가져오는 중 · {mails:,}통", pct)
+            elif line.strip():
+                lines.append(line.strip())
+        p.wait()
+        summary = (lines or ["네이버 메일을 가져오지 못했어요."])[-1]
+        log(f"📬 {summary}")
+        if announce or p.returncode:
+            with BUSY, deaf():
+                speak(summary)
+    finally:
+        FACE.progress("naver")
+        _naver_syncing.release()
+
+
+def naver_mail_watch():
+    """30분마다 네이버 메일의 새 메일을 조용히 색인에 넣는다 (연결해 둔 경우만)."""
+    while True:
+        time.sleep(NAVER_SYNC_SEC)
+        if NAVER_MAIL.exists():
+            try:
+                sync_naver_mail(announce=False)
+            except Exception as e:
+                log(f"(네이버 메일 연동 실패) {e}")
+
+
 def build_mail_index(announce=True):
     """등록한 메일 백업 폴더들을 읽어 검색 색인(data/mail.db)을 만든다. 새로 생기거나 바뀐 파일만."""
     dirs = [d for d in MODE.get("mail_dirs", []) if Path(d).is_dir()]
@@ -1082,6 +1133,9 @@ def _handle_command(command, attachments=""):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
         return
+    if NAVER_RE.search(command):
+        threading.Thread(target=sync_naver_mail, daemon=True).start()
+        return
     if MAIL_INDEX_RE.search(command):
         threading.Thread(target=build_mail_index, daemon=True).start()
         return
@@ -1435,6 +1489,7 @@ def main():
         threading.Thread(target=mail_watch, daemon=True).start()
         log(f"크몽 새 문의 확인: {KMONG_POLL_SEC // 60}분마다")
     threading.Thread(target=schedule_loop, daemon=True).start()
+    threading.Thread(target=naver_mail_watch, daemon=True).start()
     threading.Thread(target=music_watch, daemon=True).start()
     if IDLE_MIN > 0:
         threading.Thread(target=idle_watch, daemon=True).start()
