@@ -20,11 +20,28 @@
     if (mode.input === 'text') setTimeout(() => $('chat-input').focus(), 50);
   }
 
+  async function copyText(text, btn) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {  // http 등에서 clipboard API 가 막히면 예전 방식으로
+      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t);
+      t.select(); document.execCommand('copy'); t.remove();
+    }
+    btn.textContent = '복사됨'; setTimeout(() => { btn.textContent = '복사'; }, 1500);
+  }
+
   function add(who, text) {
     const log = $('chat-log');
     const div = document.createElement('div');
     div.className = 'msg ' + who;
-    div.textContent = text;
+    const body = document.createElement('span');
+    body.textContent = text;
+    div.appendChild(body);
+    if (who === 'yongyong') {  // 용용이 대답마다 복사 버튼
+      const b = document.createElement('button');
+      b.className = 'msg-copy'; b.textContent = '복사';
+      b.onclick = () => copyText(text, b);
+      div.appendChild(b);
+    }
     log.appendChild(div);
     while (log.children.length > 40) log.removeChild(log.firstChild);
     log.scrollTop = log.scrollHeight;

@@ -201,3 +201,12 @@ html.remote .chat-mic { display: block; }
 .chat-files .chip { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: rgba(126,240,192,.15); color: var(--glow); }
 .chat-files .chip b { cursor: pointer; margin-left: 4px; color: var(--muted); }
 .chat.drop .chat-log { outline: 2px dashed var(--glow); }
+
+/* 글자 선택·복사 (캐릭터 쪽은 선택 안 되게 두고 대화·패널 글자는 선택 가능) */
+.chat-log, .subtitle, .wx, .report-body, .draft-text, .blog-body { user-select: text; -webkit-user-select: text; }
+.chat-log .msg { position: relative; }
+.msg-copy { display: block; margin-top: 6px; margin-left: auto; border: 0; border-radius: 8px; padding: 3px 9px; font-size: 11px;
+  background: rgba(255,255,255,.12); color: var(--muted); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.msg-copy:active { background: var(--scale); color: #0d1226; }
+.chat-row .chat-attach, .chat-row .chat-mic { background: rgba(255,255,255,.12); color: var(--text); font-weight: 400; padding: 0 10px; }
+.chat-row .chat-mic.rec { background: #ff5c7a; color: #fff; }
