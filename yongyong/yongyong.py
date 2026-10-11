@@ -80,6 +80,7 @@ ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
         "ls", "cat", "head", "tail", "wc", "pwd", "date", "cal", "mkdir", "cp", "mv", "touch", "find", "grep",
         "git status", "git diff", "git log", "git add", "git commit", "git checkout", "git branch", "git clone",
         "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "curl",
+        "textutil", "mdls", "file",  # 맥 기본 문서 변환·정보 보기 (읽기용)
     ]),
 ]))
 DISALLOWED_TOOLS = ",".join([
@@ -349,7 +350,7 @@ def system_prompt():
     ev = evidence_dir()
     persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
                .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py"))
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
@@ -748,7 +749,7 @@ def attach_note(ids):
     if not paths:
         return ""
     return ("\n\n[첨부 파일] 대표님이 아래 파일을 첨부했어. 먼저 Read 도구로 열어서 내용을 확인한 뒤 대답해 "
-            "(사진은 보이는 내용, PDF·문서는 핵심 내용을 확인. 엑셀·워드·한글처럼 바로 안 열리는 건 python3 로 읽어 봐):\n"
+            f"(사진은 보이는 내용, PDF·문서는 핵심 내용을 확인. 워드·엑셀·파워포인트는 python3 {HERE / 'docread.py'} 파일 로 읽어):\n"
             + "\n".join(f"- {p}" for p in paths))
 
 
