@@ -12,12 +12,13 @@ import mailbox
 import re
 import sqlite3
 import sys
+import zipfile
 from email import policy
 from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
 DB = Path(__file__).resolve().parent / "data" / "mail.db"
-MAIL_EXT = {".eml", ".emlx", ".mbox", ".mbx"}
+MAIL_EXT = {".eml", ".emlx", ".mbox", ".mbx", ".zip"}  # .zip 은 안에 든 .eml 을 풀지 않고 바로 읽음
 
 
 def db():
@@ -72,6 +73,12 @@ def row_of(msg, path):
 
 def messages(path):
     ext = path.suffix.lower()
+    if ext == ".zip":  # 네이버 메일 백업은 zip 으로 받아지는 경우가 많음
+        with zipfile.ZipFile(path) as z:
+            for info in z.infolist():
+                if info.filename.lower().endswith(".eml") and not info.is_dir():
+                    yield email.message_from_bytes(z.read(info), policy=policy.default)
+        return
     if ext in (".mbox", ".mbx"):
         for m in mailbox.mbox(str(path), factory=lambda f: email.message_from_binary_file(f, policy=policy.default)):
             yield m
