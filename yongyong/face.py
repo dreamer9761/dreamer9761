@@ -127,7 +127,11 @@ class Face:
                 if self.headers.get("X-Yongyong") != "1":
                     self.send_error(403)
                     return
-                length = min(int(self.headers.get("Content-Length") or 0), 2_000_000)
+                limit = 45_000_000 if self.path == "/upload" else 2_000_000  # 첨부 파일만 크게 허용
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > limit:
+                    self.send_error(413)
+                    return
                 try:
                     body = json.loads(self.rfile.read(length) or b"{}")
                 except ValueError:

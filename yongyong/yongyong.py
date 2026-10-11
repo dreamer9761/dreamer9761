@@ -664,19 +664,55 @@ def voice_route(body):
     return {"ok": True, "text": text}
 
 
+UPLOADS = DATA / "uploads"  # 대화창에 첨부한 파일 (사진, PDF, 문서)
+UPLOAD_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".md", ".csv", ".json", ".xlsx", ".xls",
+              ".docx", ".pptx", ".hwp", ".zip"}
+
+
+def upload_route(body):
+    """첨부 파일 저장. 이름은 날짜를 붙이고 안전한 글자만 남긴다."""
+    name = Path(str(body.get("name", "file"))).name
+    ext = Path(name).suffix.lower()
+    if ext not in UPLOAD_EXT:
+        return {"ok": False, "error": f"{ext or '이 형식'} 파일은 아직 못 열어요. 사진·PDF·문서·엑셀을 올려 주세요."}
+    try:
+        data = base64.b64decode(str(body.get("data", "")), validate=True)
+    except ValueError:
+        return {"ok": False, "error": "파일을 받지 못했어요."}
+    UPLOADS.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^0-9A-Za-z가-힣._-]+", "_", Path(name).stem)[:60] or "file"
+    path = UPLOADS / f"{time.strftime('%Y%m%d-%H%M%S')}_{stem}{ext}"
+    path.write_bytes(data)
+    log(f"📎 첨부 저장: {path.name} ({len(data) // 1024}KB)")
+    return {"ok": True, "id": path.name}
+
+
+def attach_note(ids):
+    """질문에 붙일 첨부 파일 안내 (업로드 폴더 안의 파일만)."""
+    paths = [UPLOADS / Path(str(i)).name for i in ids or []]
+    paths = [p for p in paths if p.is_file()]
+    if not paths:
+        return ""
+    return ("\n\n[첨부 파일] 대표님이 아래 파일을 첨부했어. 먼저 Read 도구로 열어서 내용을 확인한 뒤 대답해 "
+            "(사진은 보이는 내용, PDF·문서는 핵심 내용을 확인. 엑셀·워드·한글처럼 바로 안 열리는 건 python3 로 읽어 봐):\n"
+            + "\n".join(f"- {p}" for p in paths))
+
+
 def ask_route(body):
-    """화면 대화창에 글자로 입력한 질문."""
-    text = str(body.get("text", "")).strip()
+    """화면 대화창에 글자로 입력한 질문 (첨부 파일 포함 가능)."""
+    files = body.get("files") or []
+    text = str(body.get("text", "")).strip() or ("첨부한 파일을 확인해 줘." if files else "")
     if not text:
         return {"ok": False, "error": "내용을 입력해 주세요."}
+    note = attach_note(files)
 
     quiet = bool(body.get("_remote"))
 
     def run():
         _local.quiet, _local.voice_reply = quiet, False
         with BUSY, deaf():
-            log(("📱 " if quiet else "⌨️ ") + text)
-            handle_command(text)
+            log(("📱 " if quiet else "⌨️ ") + text + (" 📎" if note else ""))
+            handle_command(text, note)
     threading.Thread(target=run, daemon=True).start()
     return {"ok": True}
 
@@ -808,8 +844,12 @@ def fetch_templates():
 MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
 
 
-def handle_command(command):
-    """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출)."""
+def handle_command(command, attachments=""):
+    """음성이든 텍스트든 들어온 요청 하나를 처리한다 (BUSY 를 잡은 상태에서 호출). attachments: 첨부 파일 안내문."""
+    if attachments:  # 첨부가 있으면 단축 명령(음악·알람 등) 대신 바로 Claude 가 파일을 보고 대답
+        speak("네, 첨부한 파일을 확인할게요.", then="thinking", chat=False)
+        speak(show_panels(BRAIN.ask(command + attachments)), then="listening")
+        return
     if LOGIN_RE.search(command):
         speak("화면에 Claude 계정 연결 창을 띄웠어요. 로그인 시작 버튼을 눌러 주세요.", then="login")
         return
@@ -1051,6 +1091,7 @@ def main():
         FACE.routes["/mode"] = mode_route
         FACE.routes["/ask"] = ask_route
         FACE.routes["/voice"] = voice_route
+        FACE.routes["/upload"] = upload_route
         FACE.routes["/dashboard"] = dashboard_route
         FACE.routes["/window"] = window_route
         FACE.routes["/draft"] = draft_route

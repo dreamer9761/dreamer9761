@@ -30,16 +30,46 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // 첨부 파일: 사진은 휴대폰 원본이 커서 긴 쪽 2000px JPEG 로 줄여서 보낸다
+  let files = [];
+  const toB64 = (blob) => new Promise((ok, bad) => {
+    const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = bad; r.readAsDataURL(blob);
+  });
+  async function shrink(file) {
+    if (!/^image\/(jpeg|png|webp|heic|heif)/.test(file.type) || file.size < 700000) return { name: file.name, blob: file };
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.85));
+      return { name: file.name.replace(/\.\w+$/, '') + '.jpg', blob };
+    } catch (e) { return { name: file.name, blob: file }; }
+  }
+  function chips() {
+    $('chat-files').innerHTML = files.map((f, i) => `<span class="chip">📎 ${f.name.replace(/[<>&]/g, '')} <b data-i="${i}">✕</b></span>`).join('');
+    $('chat-files').querySelectorAll('b').forEach((b) => b.onclick = () => { files.splice(+b.dataset.i, 1); chips(); });
+  }
+
   async function send() {
     const input = $('chat-input');
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !files.length) return;
+    const sending = files; files = []; chips();
     input.value = '';
-    add('me', text);
+    add('me', text + (sending.length ? (text ? '\n' : '') + sending.map((f) => '📎 ' + f.name).join('\n') : ''));
     try {
-      const r = await post('/ask', { text });
+      const ids = [];
+      for (const f of sending) {
+        const one = await shrink(f);
+        const r = await post('/upload', { name: one.name, data: await toB64(one.blob) });
+        if (!r.ok) { add('yongyong', r.error || `${f.name} 을(를) 올리지 못했어요.`); continue; }
+        ids.push(r.id);
+      }
+      if (sending.length && !ids.length && !text) return;
+      const r = await post('/ask', { text, files: ids });
       if (!r.ok) add('yongyong', r.error || '보내지 못했어요.');
-    } catch (e) { add('yongyong', '용용이가 꺼져 있는 것 같아요.'); }
+    } catch (e) { add('yongyong', '보내지 못했어요. 파일이 너무 크면(40MB 넘으면) 줄여서 올려 주세요.'); }
   }
 
   async function setMode(change) {
@@ -52,6 +82,13 @@
     $('mode-text').onclick = () => setMode({ input: 'text' });
     $('mode-speak').onclick = () => setMode({ speak: !mode.speak });
     $('chat-send').onclick = send;
+    $('chat-attach').onclick = () => $('chat-file').click();
+    $('chat-file').onchange = (e) => { files.push(...e.target.files); e.target.value = ''; chips(); };
+    // 맥에서는 파일을 대화창에 끌어다 놓아도 첨부
+    const box = document.querySelector('.chat');
+    box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('drop'); });
+    box.addEventListener('dragleave', () => box.classList.remove('drop'));
+    box.addEventListener('drop', (e) => { e.preventDefault(); box.classList.remove('drop'); files.push(...e.dataTransfer.files); chips(); });
     $('chat-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     });
