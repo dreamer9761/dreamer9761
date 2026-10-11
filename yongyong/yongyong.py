@@ -8,6 +8,7 @@ import os
 import queue
 import random
 import re
+import unicodedata
 import shutil
 import subprocess
 import sys
@@ -319,7 +320,9 @@ EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,30}(설정|지정|바꿔|선택
 
 def find_folder(name, only_roots=()):
     """지금 증빙 폴더·MYBOX (only_roots 를 주면 그 폴더들만) 안에서 이름에 name 이 들어간 하위 폴더를 찾는다 (3단계 깊이까지)."""
-    key = re.sub(r"\s+", "", name)
+    # 맥은 파일 이름의 한글을 자모로 풀어서(NFD) 저장하므로, 비교할 때는 둘 다 붙인 글자(NFC)로 맞춘다
+    norm = lambda t: unicodedata.normalize("NFC", re.sub(r"\s+", "", t))
+    key = norm(name)
     if only_roots:
         roots = list(only_roots)
     else:
@@ -327,11 +330,11 @@ def find_folder(name, only_roots=()):
                              *map(str, Path.home().glob("MYBOX*"))] if r]
         roots += [str(Path(r).parent) for r in roots]  # 지금 폴더의 옆 폴더도 찾도록
     for root in dict.fromkeys(roots):
-        if key in re.sub(r"\s+", "", Path(root).name):
+        if key in norm(Path(root).name):
             return root
         for depth in ("*", "*/*", "*/*/*"):
             for d in Path(root).glob(depth):
-                if d.is_dir() and key in re.sub(r"\s+", "", d.name):
+                if d.is_dir() and key in norm(d.name):
                     return str(d)
     return ""
 
@@ -411,6 +414,11 @@ def add_mail_folder(command="", remote=False):
         found = find_folder(name, only_roots=[str(home / "Documents"), str(home / "Downloads"), str(home / "Desktop"),
                                               *(str(v) for v in Path("/Volumes").glob("*") if v.name != "Macintosh HD")])
         if not found:
+            try:
+                next((home / "Documents").iterdir(), None)
+            except PermissionError:
+                return speak("문서 폴더를 볼 권한이 없어요. 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한에서 "
+                             "터미널을 켜 주시고, 용용이를 다시 켜 주세요.")
             return speak(f"'{name}' 폴더를 찾지 못했어요. 문서·다운로드·바탕화면·NAS 에 있는지 확인해 주세요.")
         MODE["mail_dirs"] = list(dict.fromkeys([*MODE.get("mail_dirs", []), found]))
         mode_route({})
