@@ -80,7 +80,7 @@ ALLOWED_TOOLS = os.environ.get("YONGYONG_ALLOWED_TOOLS", ",".join([
         "ls", "cat", "head", "tail", "wc", "pwd", "date", "cal", "mkdir", "cp", "mv", "touch", "find", "grep",
         "git status", "git diff", "git log", "git add", "git commit", "git checkout", "git branch", "git clone",
         "git pull", "node", "npm", "npx", "python", "python3", "uv", "pip", "curl",
-        "textutil", "mdls", "file",  # 맥 기본 문서 변환·정보 보기 (읽기용)
+        "textutil", "mdls", "mdfind", "file",  # 맥 기본 문서 변환·정보 보기·스포트라이트 내용 검색 (읽기용)
     ]),
 ]))
 DISALLOWED_TOOLS = ",".join([
@@ -119,7 +119,8 @@ SETTINGS = DATA / "settings.json"
 MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
         "music": "genie",  # music: 기본 음악 서비스 genie | youtube
         "blog": "mon 10:00", "tistory": "",  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
-        "evidence": ""}  # evidence: 계정복구 증빙자료 폴더 (네이버 MYBOX 동기화 폴더 등)
+        "evidence": "",  # evidence: 계정복구 증빙자료 폴더 (네이버 MYBOX 동기화 폴더 등)
+        "evidence_extra": []}  # 색인을 만든 다른 폴더들 (예: 계정복구 캡처 모음)
 MUSIC = threading.Event()  # 지니 음악이 나오는 중 → 마이크 대신 텍스트로만 입력 받음
 
 
@@ -306,6 +307,12 @@ def evidence_dir():
     return next((c for c in cands if c and Path(c).is_dir()), "")
 
 
+def evidence_dirs():
+    """Claude 가 읽을 수 있는 증빙 폴더들 (기본 증빙 폴더 + 색인을 만든 폴더)."""
+    dirs = [evidence_dir(), *MODE.get("evidence_extra", [])]
+    return [d for d in dict.fromkeys(dirs) if d and Path(d).is_dir()]
+
+
 EVIDENCE_RE = re.compile(r"증빙.{0,6}폴더.{0,30}(설정|지정|바꿔|선택|골라)")
 
 
@@ -323,6 +330,65 @@ def find_folder(name):
                 if d.is_dir() and key in re.sub(r"\s+", "", d.name):
                     return str(d)
     return ""
+
+
+EVIDENCE_INDEX = DATA / "evidence_index.json"     # 고객 폴더별 요약 (정지 사유·플랫폼·결과)
+EVIDENCE_INDEX_MD = DATA / "evidence_index.md"    # 같은 내용을 표로 (Claude 가 Grep 으로 사례 찾기)
+INDEX_RE = re.compile(r"(증빙|폴더).{0,8}(색인|인덱스|목록|정리).{0,8}(만들|해|업데이트|갱신|시작)")
+_indexing = threading.Lock()
+
+
+DOC_EXT = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".gif", ".pdf", ".docx", ".xlsx", ".pptx", ".doc"}
+
+
+def build_evidence_index(target=""):
+    """증빙 폴더(또는 이름으로 지정한 폴더) 안의 하위 폴더와 캡처·문서 파일을 8개씩 Claude 에게 보여 주고 요약 색인을 만든다.
+    이미 한 항목은 건너뜀 (새로 생긴 것만 추가)."""
+    root = find_folder(target) if target else evidence_dir()
+    if not root:
+        return speak(f"'{target}' 폴더를 찾지 못했어요." if target else "증빙 폴더가 아직 없어요. 먼저 증빙 폴더를 설정해 주세요.")
+    if root not in evidence_dirs():
+        MODE["evidence_extra"] = [*MODE.get("evidence_extra", []), root]
+        mode_route({})
+    if not _indexing.acquire(blocking=False):
+        return speak("증빙 색인을 이미 만들고 있어요. 끝나면 알려 드릴게요.")
+    try:
+        index = _json_file(EVIDENCE_INDEX, {})
+        key = lambda d: f"{Path(root).name}/{d.name}"  # noqa: E731  (색인 이름: 폴더/항목)
+        todo = [d for d in sorted(Path(root).iterdir())
+                if (d.is_dir() or d.suffix.lower() in DOC_EXT) and not d.name.startswith(".") and key(d) not in index]
+        if not todo:
+            return speak(f"{Path(root).name} 색인이 최신이에요. 모두 {len(index)}개 항목이 정리돼 있어요.")
+        speak(f"{Path(root).name} 에서 새 항목 {len(todo)}개를 정리할게요. 시간이 좀 걸려서, 끝나면 알려 드릴게요.")
+        for i in range(0, len(todo), 8):
+            batch = todo[i:i + 8]
+            log(f"🗂️ 증빙 색인 {i + 1}~{i + len(batch)} / {len(todo)}")
+            answer = Brain(workdir=DATA, remember=False).ask(
+                "다음 증빙 항목들을 하나씩 열어 봐. 폴더면 파일 목록을 보고 핵심 파일만 최대 4개, 파일(주로 계정복구·제재 화면 캡처)이면 그 파일을 읽어. "
+                f"사진·PDF 는 Read, 워드·엑셀은 python3 {HERE / 'docread.py'}. 그리고 JSON 배열 한 줄로만 대답해 (다른 말 금지):\n"
+                '[{"folder": "항목 이름(폴더나 파일 이름) 그대로", "platform": "쿠팡/스마트스토어/11번가 등", "reason": "정지·제재 사유 (예: 개인정보보호 위반, 상품등록정책 위반, 지재권 신고)", '
+                '"status": "복구됨/진행중/거절/불명", "dates": "중요 날짜들", "related": "연관 계정", "summary": "무엇을 했고 어떻게 됐는지 한두 문장"}]\n'
+                "모르는 칸은 빈 문자열. 개인 연락처·사업자번호는 쓰지 마.\n" + "\n".join(f"- {d}" for d in batch), tools=True)
+            try:
+                rows = json.loads(answer[answer.index("["): answer.rindex("]") + 1])
+            except ValueError:
+                log(f"(색인 실패) {answer[:100]}")
+                continue
+            names = {d.name: key(d) for d in batch}
+            for r in rows:
+                if isinstance(r, dict) and r.get("folder"):
+                    index[names.get(r["folder"], f"{Path(root).name}/{r['folder']}")] = {
+                        k: str(r.get(k, "")) for k in ("platform", "reason", "status", "dates", "related", "summary")}
+            EVIDENCE_INDEX.write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+            lines = ["| 항목 (폴더/파일) | 플랫폼 | 사유 | 결과 | 날짜 | 연관 | 요약 |", "|---|---|---|---|---|---|---|"]
+            lines += [f"| {k} | {v['platform']} | {v['reason']} | {v['status']} | {v['dates']} | {v['related']} | {v['summary']} |"
+                      for k, v in sorted(index.items())]
+            EVIDENCE_INDEX_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with BUSY, deaf():
+            done = sum(1 for k in index if k.startswith(Path(root).name + "/"))
+            speak(f"{Path(root).name} 색인을 다 만들었어요. {done}개 항목을 사유와 결과별로 찾을 수 있어요.")
+    finally:
+        _indexing.release()
 
 
 def pick_evidence_folder(command=""):
@@ -350,7 +416,7 @@ def system_prompt():
     ev = evidence_dir()
     persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
                .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py"))
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD))
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
@@ -371,7 +437,7 @@ class Brain:
             "--append-system-prompt", system_prompt(),
             "--permission-mode", "acceptEdits",
             "--add-dir", str(DATA),
-            *(["--add-dir", ev] if (ev := evidence_dir()) else []),
+            *[a for d in evidence_dirs() for a in ("--add-dir", d)],
         ]
         if tools:
             cmd += ["--allowedTools", ALLOWED_TOOLS, "--disallowedTools", DISALLOWED_TOOLS]
@@ -922,6 +988,11 @@ def handle_command(command, attachments=""):
     if re.search(r"메일.{0,6}(발송\s*)?알림", command):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
+        return
+    if INDEX_RE.search(command):
+        m = re.search(r"['\"「]?([^'\"」\s]+)['\"」]?\s*폴더", command)  # "계정복구캡처 폴더 색인 만들어 줘"
+        target = m.group(1) if m and m.group(1) not in ("증빙", "증빙자료", "이", "그") else ""
+        threading.Thread(target=build_evidence_index, args=(target,), daemon=True).start()
         return
     if EVIDENCE_RE.search(command):
         if getattr(_local, "quiet", False):
