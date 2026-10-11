@@ -4,6 +4,7 @@
   python3 mailindex.py build 폴더 [폴더 ...]     색인 만들기 (새로 생기거나 바뀐 파일만)
   python3 mailindex.py search 검색어 [개수]       제목·보낸사람·받는사람·본문·첨부 이름에서 찾기 (예: "블루키워즈", "쿠팡 소명")
   python3 mailindex.py from 주소또는이름 [개수]   특정 사람과 주고받은 메일
+  python3 mailindex.py customer 계정번호 회사명 닉네임 ...   크몽 고객 한 명의 메일 기록 한꺼번에 (최근 순, 보냄/받음 표시)
   python3 mailindex.py show 번호                  메일 한 통 전체 보기
   python3 mailindex.py stats                     색인 현황"""
 import email
@@ -164,6 +165,53 @@ def by_person(who, n=30):
                            "WHERE sender LIKE ? OR recipients LIKE ? ORDER BY date DESC LIMIT ?", (like, like, n)).fetchall())
 
 
+ADDR = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def customer(keys, n=15):
+    """크몽 고객 한 명의 메일 기록을 한꺼번에: 계정 번호·회사명·닉네임·이메일 중 하나라도 들어간 메일을 모으고,
+    그 메일에 나온 고객 이메일 주소로 한 번 더 찾아서(회사명을 안 쓴 메일까지) 최근 순으로 보여 준다."""
+    con = db()
+    count = {}  # 우리 주소 = 거의 모든 메일(보낸·받은)에 들어 있는 주소
+    for sender, rcpt in con.execute("SELECT sender, recipients FROM mail ORDER BY date DESC LIMIT 3000"):
+        for a in set(ADDR.findall(((sender or "") + " " + (rcpt or "")).lower())):
+            count[a] = count.get(a, 0) + 1
+    top = max(count.values(), default=0)
+    ours = {a for a, c in count.items() if c >= top * 0.3}
+    found = {}
+
+    def add(sql, args):
+        for r in con.execute(sql, args).fetchall():
+            found[r[0]] = r
+
+    cols = "rowid, date, sender, recipients, subject, body, attachments"
+    for k in [k for k in keys if len(k.strip()) >= 2]:
+        try:
+            add("SELECT %s FROM mail WHERE mail MATCH ? LIMIT 200" % cols, ('"%s"' % k.replace('"', ""),))
+        except sqlite3.OperationalError:
+            pass
+        like = "%" + k + "%"
+        add("SELECT %s FROM mail WHERE subject LIKE ? OR sender LIKE ? OR recipients LIKE ? OR attachments LIKE ? LIMIT 200" % cols,
+            (like,) * 4)
+    addrs = {}
+    for r in found.values():
+        for a in ADDR.findall((r[2] or "") + " " + (r[3] or "")):
+            if a.lower() not in ours:
+                addrs[a] = addrs.get(a, 0) + 1
+    for a, _ in sorted(addrs.items(), key=lambda x: -x[1])[:3]:  # 고객 주소로 한 번 더
+        add("SELECT %s FROM mail WHERE sender LIKE ? OR recipients LIKE ? LIMIT 200" % cols, ("%" + a + "%",) * 2)
+    rows = sorted(found.values(), key=lambda r: r[1] or "", reverse=True)
+    if not rows:
+        print("이 고객과 주고받은 메일이 색인에 없어요. (찾은 말: %s)" % ", ".join(keys))
+        return
+    print("메일 %d통 (%s ~ %s) / 고객 주소: %s" % (len(rows), rows[-1][1] or "-", rows[0][1] or "-",
+                                                ", ".join(sorted(addrs, key=lambda a: -addrs[a])[:3]) or "-"))
+    for i, (rid, date, sender, rcpt, subject, body, files) in enumerate(rows[:n]):
+        way = "보냄" if any(o in (sender or "").lower() for o in ours) else "받음"
+        text = re.sub(r"\s+", " ", body or "")[: 600 if i < 3 else 150]  # 최근 3통은 길게
+        print("#%d | %s | %s | %s%s\n    %s" % (rid, date, way, subject, " | 첨부: " + files[:80] if files else "", text))
+
+
 def show(rid):
     r = db().execute("SELECT date, sender, recipients, subject, attachments, body, path FROM mail WHERE rowid = ?", (rid,)).fetchone()
     if not r:
@@ -188,6 +236,8 @@ if __name__ == "__main__":
         search(" ".join(x for x in a[1:] if not x.isdigit()) or a[1], int(a[-1]) if a[-1].isdigit() and len(a) > 2 else 20)
     elif cmd == "from" and a[1:]:
         by_person(a[1], int(a[2]) if len(a) > 2 else 30)
+    elif cmd == "customer" and a[1:]:
+        customer(a[1:])
     elif cmd == "show" and a[1:]:
         show(int(a[1].lstrip("#")))
     elif cmd == "stats":
