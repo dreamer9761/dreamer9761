@@ -867,6 +867,10 @@ def handle_command(command, attachments=""):
               else "텍스트 모드로 바꿨어요. 화면 아래 칸에 입력해 주세요.")
         return
 
+    if re.search(r"메일.{0,6}(발송\s*)?알림", command):
+        FACE.panel("notices")
+        speak("메일 발송 알림을 화면에 띄웠어요.")
+        return
     if TEMPLATE_EDIT_RE.search(command):
         FACE.panel("templates")
         speak("화면에 자주 쓰는 문구 칸을 띄웠어요. 문구를 붙여넣고 저장해 주세요.")
@@ -1018,6 +1022,86 @@ def kmong_prompt(page, new_lines=None):
     return prompt + "\n\n=== 크몽 화면 ===\n" + page
 
 
+# ── 이메일 발송 알림: 허브 메일 색인에서 우리가 고객에게 보낸 메일을 찾아, 크몽 대화창에 남길 알림을 준비 ──
+MAIL_POLL_SEC = int(os.environ.get("YONGYONG_MAIL_POLL", "1800"))  # 30분마다 (0 이면 끔)
+MAIL_SEEN = DATA / "mail_seen.json"
+NOTICES = DATA / "mail_notices.json"
+NOTICE_TEMPLATE = DATA / "mail_notice.txt"
+DEFAULT_NOTICE = ("안녕하세요 {닉네임}님, 스마트로보코리아입니다.\n요청하신 {제목} 관련 내용을 이메일로 보내드렸습니다. "
+                  "메일함(스팸함 포함)을 확인해 주시고 궁금한 점은 편하게 말씀해 주세요. 감사합니다!")
+MAIL_PROMPT = ("셀러닥터 허브의 '메일 색인'(주소는 기억 파일의 '허브 메일 색인 주소', 없으면 hub.py links 로 찾아 적어)을 읽고, "
+               "우리가 크몽 고객에게 '보낸' 메일 중 최근 3일 이내 것만 골라 JSON 배열 한 줄로만 대답해. 다른 말은 쓰지 마. "
+               '형식: [{"nickname": "크몽 닉네임", "subject": "메일 제목", "sent": "YYYY-MM-DD HH:MM"}]. '
+               "크몽 닉네임을 모르면 고객 기록 파일에서 이메일·회사명으로 찾아 보고, 그래도 모르면 그 메일은 빼. 없으면 [].")
+
+
+def _json_file(path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def mail_watch():
+    """30분마다(오전 9시~오후 9시) 보낸 메일을 확인해서, 새로 보낸 메일이 있으면 크몽 알림 초안을 만들고 알려 준다."""
+    while True:
+        time.sleep(MAIL_POLL_SEC)
+        if not 9 <= time.localtime().tm_hour < 21:
+            continue
+        answer = Brain(workdir=DATA, remember=False).ask(MAIL_PROMPT)
+        try:
+            mails = json.loads(answer[answer.index("["): answer.rindex("]") + 1])
+        except ValueError:
+            log(f"(메일 확인 실패) {answer[:80]}")
+            continue
+        first_run = not MAIL_SEEN.exists()
+        seen = set(_json_file(MAIL_SEEN, []))
+        pending = _json_file(NOTICES, [])
+        template = NOTICE_TEMPLATE.read_text(encoding="utf-8") if NOTICE_TEMPLATE.exists() else DEFAULT_NOTICE
+        new = []
+        for m in mails:
+            key = f"{m.get('nickname')}|{m.get('subject')}|{m.get('sent')}"
+            if not m.get("nickname") or key in seen:
+                continue
+            seen.add(key)
+            if not first_run:  # 처음 한 번은 기존 메일을 '본 것'으로만 표시
+                text = template.replace("{닉네임}", m["nickname"]).replace("{제목}", m.get("subject", "자료"))
+                new.append({"nickname": m["nickname"], "subject": m.get("subject", ""), "sent": m.get("sent", ""), "text": text})
+        MAIL_SEEN.write_text(json.dumps(sorted(seen), ensure_ascii=False), encoding="utf-8")
+        if new:
+            NOTICES.write_text(json.dumps(pending + new, ensure_ascii=False), encoding="utf-8")
+            names = ", ".join(n["nickname"] for n in new)
+            log(f"📧 새로 보낸 메일 {len(new)}건: {names}")
+            with BUSY, deaf():
+                FACE.panel("notices")
+                speak(f"{names}님께 메일을 보내셨네요. 크몽 대화창에 남길 메일 발송 알림을 화면에 준비했어요. 확인하고 넣어 주세요.")
+
+
+def notices_route(_body):
+    return {"ok": True, "items": _json_file(NOTICES, [])}
+
+
+def notices_act_route(body):
+    """알림 하나를 크몽 대화창에 넣거나(insert) 지우기(dismiss). 보내기는 대표님이 크몽에서 직접."""
+    items = _json_file(NOTICES, [])
+    i = int(body.get("index", -1))
+    if not 0 <= i < len(items):
+        return {"ok": False, "error": "이미 처리된 알림이에요."}
+    item = items[i]
+    if body.get("action") == "insert":
+        text = str(body.get("text") or item["text"])
+        try:
+            if not kmong.open_chat(item["nickname"]):
+                return {"ok": False, "error": f"크몽 메시지 목록에서 {item['nickname']}님 대화를 찾지 못했어요. 사파리에 크몽 메시지 화면을 열어 주세요."}
+            if not kmong.insert_draft(text):
+                return {"ok": False, "error": "크몽 입력창을 찾지 못했어요."}
+        except kmong.SafariError as e:
+            return {"ok": False, "error": str(e)}
+    items.pop(i)
+    NOTICES.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "items": items}
+
+
 def kmong_inbox():
     """크몽 메시지 목록 글자. 사파리에 크몽 탭이 열려 있으면 그걸, 없으면 기억해 둔 메시지 주소를 잠깐 열어 읽는다."""
     page = kmong.snapshot()
@@ -1095,6 +1179,8 @@ def main():
         FACE.routes["/ask"] = ask_route
         FACE.routes["/voice"] = voice_route
         FACE.routes["/upload"] = upload_route
+        FACE.routes["/notices"] = notices_route
+        FACE.routes["/notices/act"] = notices_act_route
         FACE.routes["/dashboard"] = dashboard_route
         FACE.routes["/window"] = window_route
         FACE.routes["/draft"] = draft_route
@@ -1120,6 +1206,8 @@ def main():
         log("Claude 로그인이 필요해요 → 캐릭터 창의 [로그인] 버튼을 눌러 주세요.")
     if KMONG_POLL_SEC > 0:
         threading.Thread(target=kmong_watch, daemon=True).start()
+    if MAIL_POLL_SEC > 0:
+        threading.Thread(target=mail_watch, daemon=True).start()
         log(f"크몽 새 문의 확인: {KMONG_POLL_SEC // 60}분마다")
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=music_watch, daemon=True).start()

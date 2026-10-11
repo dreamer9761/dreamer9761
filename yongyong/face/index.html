@@ -20,6 +20,7 @@
 <script src="templates.js"></script>
 <script src="blogimg.js"></script>
 <script src="blog.js"></script>
+<script src="notices.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -302,6 +303,14 @@
     </div>
     <ol class="news-list" id="news-list"></ol>
   </section>
+  <section class="wx side-panel" id="notices" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place">📧 메일 발송 알림</div><div class="wx-updated">고객에게 보낸 메일을 크몽 대화창에도 알려 주세요</div></div>
+      <button class="wx-close" id="notices-close" aria-label="닫기">✕</button>
+    </div>
+    <div id="notices-list"></div>
+    <div class="draft-msg" id="notices-msg"></div>
+  </section>
   <section class="wx side-panel" id="blog" hidden>
     <div class="wx-head">
       <div><div class="wx-place">📝 이번 주 블로그 초안</div><div class="wx-updated" id="blog-updated"></div></div>
@@ -462,6 +471,7 @@
       else if (msg.panel === 'draft') window.YongDraft.show();
       else if (msg.panel === 'templates') window.YongTemplates.show();
       else if (msg.panel === 'blog') window.YongBlog.show();
+      else if (msg.panel === 'notices') window.YongNotices.show();
       else if (msg.panel === 'dash') msg.on ? window.YongDash.show() : window.YongDash.hide();
       else if (msg.panel === 'chat') window.YongChat.add(msg.who, msg.text);
       else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);

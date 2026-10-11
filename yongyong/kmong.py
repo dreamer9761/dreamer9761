@@ -436,6 +436,28 @@ def read_templates(save_to=None):
     return text
 
 
+_JS_OPEN_CHAT = r"""((name) => {
+  // 메시지 목록에서 닉네임이 한 줄로 딱 맞는 대화를 찾아 연다 (클릭은 대화 열기만)
+  const norm = (t) => (t || '').replace(/\s+/g, '');
+  const cand = Array.from(document.querySelectorAll('a, li, [role=button], div')).filter(e =>
+    e.offsetParent !== null && (e.innerText || '').split('\n').some(l => norm(l) === norm(name)) && e.innerText.length < 400);
+  const el = cand.sort((a, b) => a.innerText.length - b.innerText.length)[0];
+  if (!el) return 'notfound';
+  (el.closest('a, li, [role=button]') || el).click();
+  return 'opened';
+})(%s)"""
+
+
+def open_chat(nickname):
+    """크몽 메시지 탭에서 해당 손님 대화를 연다."""
+    import json
+    import time
+    if _chat_js(_JS_OPEN_CHAT % json.dumps(nickname)) != "opened":
+        return False
+    time.sleep(2.5)
+    return True
+
+
 def insert_draft(text):
     """크몽 대화 입력창에 초안을 넣기만 한다. 보내기는 대표님이 직접."""
     import json

@@ -210,3 +210,9 @@ html.remote .chat-mic { display: block; }
 .msg-copy:active { background: var(--scale); color: #0d1226; }
 .chat-row .chat-attach, .chat-row .chat-mic { background: rgba(255,255,255,.12); color: var(--text); font-weight: 400; padding: 0 10px; }
 .chat-row .chat-mic.rec { background: #ff5c7a; color: #fff; }
+
+/* 메일 발송 알림 */
+.notice { margin-top: 12px; padding: 12px; border-radius: 14px; background: rgba(255,255,255,.05); }
+.notice-head { font-size: 14px; }
+.notice-head span { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.notice-text { min-height: 110px; }

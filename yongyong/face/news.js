@@ -7,7 +7,7 @@
   function close() {
     clearTimeout(closeTimer);
     $('news').hidden = true;
-    if ($('weather').hidden && $('report').hidden && $('draft').hidden && $('tpl').hidden && $('blog').hidden) document.documentElement.classList.remove('has-side');
+    if ($('weather').hidden && $('report').hidden && $('draft').hidden && $('tpl').hidden && $('blog').hidden && $('notices').hidden) document.documentElement.classList.remove('has-side');
   }
 
   async function show(topic) {
@@ -16,6 +16,7 @@
     $('draft').hidden = true;
     $('tpl').hidden = true;
     $('blog').hidden = true;
+    $('notices').hidden = true;
     $('news').hidden = false;
     document.documentElement.classList.add('has-side');
     try { if (window.innerWidth < 900) window.resizeTo(1120, Math.max(window.outerHeight, 820)); } catch (e) {}

@@ -41,11 +41,11 @@
 
   function close() {
     $('blog').hidden = true;
-    if (['weather', 'news', 'report', 'draft', 'tpl'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
+    if (['weather', 'news', 'report', 'draft', 'tpl', 'notices'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
   }
 
   async function show() {
-    for (const id of ['weather', 'news', 'report', 'draft', 'tpl']) $(id).hidden = true;
+    for (const id of ['weather', 'news', 'report', 'draft', 'tpl', 'notices']) $(id).hidden = true;
     $('blog').hidden = false;
     document.documentElement.classList.add('has-side');
     $('blog-msg').textContent = '';

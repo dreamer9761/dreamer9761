@@ -7,11 +7,11 @@
 
   function close() {
     $('draft').hidden = true;
-    if (['weather', 'news', 'report', 'tpl', 'blog'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
+    if (['weather', 'news', 'report', 'tpl', 'blog', 'notices'].every((id) => $(id).hidden)) document.documentElement.classList.remove('has-side');
   }
 
   async function show() {
-    for (const id of ['weather', 'news', 'report', 'tpl', 'blog']) $(id).hidden = true;
+    for (const id of ['weather', 'news', 'report', 'tpl', 'blog', 'notices']) $(id).hidden = true;
     $('draft').hidden = false;
     document.documentElement.classList.add('has-side');
     $('draft-msg').textContent = '';
