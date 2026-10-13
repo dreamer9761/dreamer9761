@@ -34,7 +34,9 @@ def connect(user):
         con.login(user.split("@")[0], password(user))
     except imaplib.IMAP4.error as e:
         print("(로그인 실패 이유: %s)" % e, flush=True)
-        sys.exit("네이버 메일에 로그인이 안 돼요. 애플리케이션 비밀번호를 지웠거나 바꿨다면 naver_mail_setup.sh 를 다시 실행해 주세요.")
+        print("네이버 메일에 로그인이 안 돼서 자동 연동을 멈췄어요. 로그인 실패가 쌓이면 네이버가 ID 보호조치를 하니, "
+              "새 애플리케이션 비밀번호로 naver_mail_setup.sh 를 다시 실행해 주세요.")
+        sys.exit(2)  # 2 = 로그인 거절: 용용이가 자동 재시도를 멈춤
     return con
 
 

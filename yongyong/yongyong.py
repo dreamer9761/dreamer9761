@@ -440,6 +440,7 @@ def add_mail_folder(command="", remote=False):
 NAVER_MAIL = DATA / "naver_mail.json"   # {"id": 네이버 아이디} (비밀번호는 키체인에만, naver_mail_setup.sh 로 설정)
 NAVER_RE = re.compile(r"네이버\s*메일.{0,10}(연동|가져와|동기화|불러와|업데이트|새로\s*고침|확인|색인)")
 NAVER_SYNC_SEC = 1800
+NAVER_PAUSED = DATA / "naver_mail_paused"  # 로그인이 거절되면 생김 → 자동 재시도 멈춤 (naver_mail_setup.sh 가 지움)
 _naver_syncing = threading.Lock()
 
 
@@ -470,6 +471,10 @@ def sync_naver_mail(announce=True):
         summary = (lines or ["네이버 메일을 가져오지 못했어요."])[-1]
         log(f"📬 {summary}")
         failed = p.returncode != 0
+        if p.returncode == 2:  # 로그인 거절: 같은 비밀번호로 계속 시도하면 네이버가 ID 보호조치를 하므로 멈춘다
+            NAVER_PAUSED.write_text(time.strftime("%Y-%m-%d %H:%M"))
+        elif not failed:
+            NAVER_PAUSED.unlink(missing_ok=True)
         # 30분마다 자동으로 할 때 실패하면, 같은 말을 계속 반복하지 않도록 처음 한 번만 알려 준다
         if announce or (failed and not getattr(sync_naver_mail, "warned", False)):
             with BUSY, deaf():
@@ -484,7 +489,7 @@ def naver_mail_watch():
     """30분마다 네이버 메일의 새 메일을 조용히 색인에 넣는다 (연결해 둔 경우만)."""
     while True:
         time.sleep(NAVER_SYNC_SEC)
-        if NAVER_MAIL.exists():
+        if NAVER_MAIL.exists() and not NAVER_PAUSED.exists():
             try:
                 sync_naver_mail(announce=False)
             except Exception as e:

@@ -17,6 +17,7 @@ security add-generic-password -U -s yongyong-naver-mail -a "$ID" -w || { echo "�
 if "$PY" mailsync.py test "$ID"; then
   mkdir -p data
   printf '{"id": "%s"}\n' "$ID" > data/naver_mail.json
+  rm -f data/naver_mail_paused  # 멈춰 있던 자동 연동 다시 시작
   echo
   echo "✅ 연결됐어요. 용용이에게 '네이버 메일 연동해 줘' 라고 하시면 메일을 가져오기 시작해요."
   echo "   (그다음부터는 30분마다 새 메일만 자동으로 가져와요)"
