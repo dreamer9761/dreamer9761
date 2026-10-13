@@ -688,6 +688,105 @@ def briefing():
         speak("좋은 아침이에요, 대표님. " + show_panels(answer))
 
 
+IDLE_MIN = int(os.environ.get("YONGYONG_IDLE_MIN", "10"))  # 맥을 이만큼 안 쓰면 대기 화면 (0 이면 끔)
+
+
+def system_idle_seconds():
+    """맥 전체에서 마지막으로 키보드·마우스를 쓴 뒤 지난 시간(초). 다른 앱에서 일하는 것도 포함."""
+    out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True).stdout
+    m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
+    return int(m.group(1)) / 1e9 if m else 0.0
+
+
+def idle_watch():
+    """대기 화면은 맥을 정말 아무도 안 쓸 때만. 용용이가 일하는 중이거나 키보드·마우스를 쓰면 바로 닫음."""
+    shown = False
+    while True:
+        time.sleep(15)
+        try:
+            idle = system_idle_seconds()
+        except OSError:
+            continue
+        working = BUSY.locked() or _refreshing.locked()
+        if not shown and idle >= IDLE_MIN * 60 and not working:
+            FACE.panel("dash", on=True)
+            shown = True
+        elif shown and (idle < 20 or BUSY.locked()):
+            FACE.panel("dash", on=False)
+            shown = False
+
+
+BLOG_DIR = DATA / "blog"
+WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+BLOG_PROMPT = "이번 주 블로그 글 초안을 써 줘. 화면에 띄울 수 있게 대답 끝에 [[블로그]] 를 붙여."
+
+
+def blog_week():
+    """매주 정해진 요일·시각에 블로그 초안을 만들고 알려 준다 (올리기는 대표님이 직접)."""
+    log("📝 이번 주 블로그 초안 쓰는 중")
+    answer = Brain(remember=False).ask(BLOG_PROMPT)
+    with BUSY, deaf():
+        speak(show_panels(answer))
+        speak("네이버 글쓰기 화면에 미리 채워 둘게요.", then="thinking")
+        msg = blog_fill("naver")  # 발행 직전까지 준비해 두고, 발행은 대표님이 확인 후
+        log(f"📝 {msg}")
+        speak(msg)
+
+
+def blog_route(_body):
+    files = sorted(BLOG_DIR.glob("*.md")) if BLOG_DIR.exists() else []
+    if not files:
+        return {"ok": False, "tistory": MODE.get("tistory", "")}
+    text = files[-1].read_text(encoding="utf-8")
+    out = {"ok": True, "tistory": MODE.get("tistory", ""),
+           "updated": files[-1].stem + " 초안 · 확인하고 직접 올려 주세요"}
+    for key, name in (("naver", "네이버"), ("tistory", "티스토리")):
+        m = re.search(r"^##\s*" + name + r"\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)  # '## 이미지' 앞에서 끝남
+        part = m.group(1) if m else ""
+        title = re.search(r"^제목\s*[:：]\s*(.+)$", part, re.M)
+        tags = re.search(r"^태그\s*[:：]\s*(.+)$", part, re.M)
+        body = part.split("\n---", 1)[1] if "\n---" in part else part
+        out[key] = {"title": title.group(1).strip() if title else "", "tags": tags.group(1).strip() if tags else "",
+                    "body": body.strip()}
+    m = re.search(r"^##\s*이미지\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
+    out["images"] = [{"kind": k.strip(), "parts": [x.strip() for x in v.split("|") if x.strip()]}
+                     for k, v in re.findall(r"^\s*-\s*([^:：\n]+)[:：]\s*(.+)$", m.group(1) if m else "", re.M)]
+    return out
+
+
+def blog_fill(site):
+    """최근 초안으로 글쓰기 화면을 열어 채운다 (발행은 대표님이 직접)."""
+    try:
+        title, body, tags = blogpost.latest(site)
+        return blogpost.fill(site, title, body, tags, MODE.get("tistory", ""))
+    except (kmong.SafariError, subprocess.TimeoutExpired) as e:
+        return str(e)
+
+
+def blog_fill_route(body):
+    site = "tistory" if body.get("site") == "tistory" else "naver"
+    msg = blog_fill(site)
+    log(f"📝 {msg}")
+    return {"ok": "넣었어요" in msg, "message": msg}
+
+
+BLOG_POST_RE = re.compile(r"블로그.{0,10}(올려|채워|붙여|발행|업로드)|(네이버|티스토리).{0,8}(올려|채워)")
+
+
+def handle_blog_post(command):
+    if not BLOG_POST_RE.search(command):
+        return False
+    sites = ["tistory"] if "티스토리" in command else ["naver"] if "네이버" in command else ["naver", "tistory"]
+    if "tistory" in sites and not MODE.get("tistory"):
+        sites = [x for x in sites if x != "tistory"] or sites
+    speak("블로그 글쓰기 화면을 열어서 초안을 채울게요.", then="thinking")
+    for site in sites:
+        msg = blog_fill(site)
+        log(f"📝 {msg}")
+        speak(msg)
+    return True
+
+
 def schedule_loop():
     """정해진 시각에 아침 브리핑, 주간 블로그 초안."""
     done = set()
