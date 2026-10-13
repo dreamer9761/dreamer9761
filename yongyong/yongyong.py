@@ -6,7 +6,6 @@ import json
 import math
 import os
 import queue
-import random
 import re
 import unicodedata
 import shutil
@@ -123,8 +122,8 @@ SHOW_FACE = os.environ.get("YONGYONG_FACE", "1") != "0"
 FACE = face.Face()
 _local = threading.local()
 SETTINGS = DATA / "settings.json"
-# input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도, alarm: 기상 음악 시각("" 이면 끔)
-MODE = {"input": "voice", "speak": True, "alarm": os.environ.get("YONGYONG_ALARM_TIME", "07:00"), "region": "",
+# input: voice(음성) | text(글자로 입력), speak: 대답을 소리로도
+MODE = {"input": "voice", "speak": True, "region": "",
         "music": "genie",  # music: 기본 음악 서비스 genie | youtube
         "blog": "mon 10:00", "tistory": "",  # blog: 매주 블로그 초안 쓰는 요일·시각 ("" 이면 끔)
         "evidence": "",  # evidence: 계정복구 증빙자료 폴더 (네이버 MYBOX 동기화 폴더 등)
@@ -186,12 +185,6 @@ def music_watch():
                 set_music(False)
 
 
-WAKE_SONGS = [  # 기상 음악 (지니에서 검색할 걸그룹 노래, 매일 다른 곡)
-    "아이브 LOVE DIVE", "아이브 해야", "뉴진스 Hype Boy", "뉴진스 Super Shy", "르세라핌 ANTIFRAGILE",
-    "에스파 Supernova", "에스파 Whiplash", "트와이스 TT", "트와이스 FANCY", "레드벨벳 빨간 맛", "있지 달라달라",
-    "(여자)아이들 퀸카", "블랙핑크 뚜두뚜두", "소녀시대 다시 만난 세계", "아일릿 Magnetic", "키스오브라이프 Midas Touch",
-    "베이비몬스터 SHEESH", "오마이걸 살짝 설렜어", "마마무 HIP", "스테이씨 ASAP",
-]
 BUSY = threading.Lock()  # 용용이가 한 번에 한 가지만 말하도록
 ENV_FILE = HERE / ".env"
 audio_q: "queue.Queue[np.ndarray]" = queue.Queue()
@@ -695,178 +688,20 @@ def briefing():
         speak("좋은 아침이에요, 대표님. " + show_panels(answer))
 
 
-def wake_up():
-    """기상 음악: 지니에서 걸그룹 노래를 작은 소리로 틀고 점점 키운다."""
-    state_file = DATA / "alarm.json"
-    try:
-        last = json.loads(state_file.read_text()).get("song")
-    except (OSError, ValueError):
-        last = None
-    songs = random.sample([x for x in WAKE_SONGS if x != last], 10)  # 10곡 연속, 어제 첫 곡은 빼고
-    song = songs[0]
-    state_file.write_text(json.dumps({"song": song, "date": time.strftime("%Y-%m-%d")}, ensure_ascii=False))
-    log(f"⏰ 기상 음악: {song}")
-    with BUSY, deaf():
-        genie.volume(35)
-        speak("좋은 아침이에요, 대표님! 일어날 시간이에요.")
-    try:
-        if MODE.get("music") == "youtube":
-            ok, _, msg = youtube.play("걸그룹 히트곡", 10, views=True)
-            result = "재생을 시작" if ok else msg
-        else:
-            MUSIC_QUEUE[:] = songs
-            result = "재생을 시작" if play_next() else "지니에서 재생하지 못했어요."
-    except (kmong.SafariError, subprocess.TimeoutExpired, ValueError) as e:
-        result = f"지니를 열지 못했어요: {e}"
-    if "재생을 시작" not in result:
-        with BUSY, deaf():
-            speak("기상 음악을 틀지 못했어요. " + result.split(" 플레이어 창이 안 뜨")[0])
-        return
-    set_music(True)
-    for level in (45, 55, 65):  # 1분 30초에 걸쳐 소리를 조금씩 키움
-        time.sleep(30)
-        genie.volume(level)
-
-
-IDLE_MIN = int(os.environ.get("YONGYONG_IDLE_MIN", "10"))  # 맥을 이만큼 안 쓰면 대기 화면 (0 이면 끔)
-
-
-def system_idle_seconds():
-    """맥 전체에서 마지막으로 키보드·마우스를 쓴 뒤 지난 시간(초). 다른 앱에서 일하는 것도 포함."""
-    out = subprocess.run(["ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True, text=True).stdout
-    m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
-    return int(m.group(1)) / 1e9 if m else 0.0
-
-
-def idle_watch():
-    """대기 화면은 맥을 정말 아무도 안 쓸 때만. 용용이가 일하는 중이거나 키보드·마우스를 쓰면 바로 닫음."""
-    shown = False
-    while True:
-        time.sleep(15)
-        try:
-            idle = system_idle_seconds()
-        except OSError:
-            continue
-        working = BUSY.locked() or _refreshing.locked()
-        if not shown and idle >= IDLE_MIN * 60 and not working:
-            FACE.panel("dash", on=True)
-            shown = True
-        elif shown and (idle < 20 or BUSY.locked()):
-            FACE.panel("dash", on=False)
-            shown = False
-
-
-BLOG_DIR = DATA / "blog"
-WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-BLOG_PROMPT = "이번 주 블로그 글 초안을 써 줘. 화면에 띄울 수 있게 대답 끝에 [[블로그]] 를 붙여."
-
-
-def blog_week():
-    """매주 정해진 요일·시각에 블로그 초안을 만들고 알려 준다 (올리기는 대표님이 직접)."""
-    log("📝 이번 주 블로그 초안 쓰는 중")
-    answer = Brain(remember=False).ask(BLOG_PROMPT)
-    with BUSY, deaf():
-        speak(show_panels(answer))
-        speak("네이버 글쓰기 화면에 미리 채워 둘게요.", then="thinking")
-        msg = blog_fill("naver")  # 발행 직전까지 준비해 두고, 발행은 대표님이 확인 후
-        log(f"📝 {msg}")
-        speak(msg)
-
-
-def blog_route(_body):
-    files = sorted(BLOG_DIR.glob("*.md")) if BLOG_DIR.exists() else []
-    if not files:
-        return {"ok": False, "tistory": MODE.get("tistory", "")}
-    text = files[-1].read_text(encoding="utf-8")
-    out = {"ok": True, "tistory": MODE.get("tistory", ""),
-           "updated": files[-1].stem + " 초안 · 확인하고 직접 올려 주세요"}
-    for key, name in (("naver", "네이버"), ("tistory", "티스토리")):
-        m = re.search(r"^##\s*" + name + r"\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)  # '## 이미지' 앞에서 끝남
-        part = m.group(1) if m else ""
-        title = re.search(r"^제목\s*[:：]\s*(.+)$", part, re.M)
-        tags = re.search(r"^태그\s*[:：]\s*(.+)$", part, re.M)
-        body = part.split("\n---", 1)[1] if "\n---" in part else part
-        out[key] = {"title": title.group(1).strip() if title else "", "tags": tags.group(1).strip() if tags else "",
-                    "body": body.strip()}
-    m = re.search(r"^##\s*이미지\s*\n(.*?)(?=^##\s|\Z)", text, re.S | re.M)
-    out["images"] = [{"kind": k.strip(), "parts": [x.strip() for x in v.split("|") if x.strip()]}
-                     for k, v in re.findall(r"^\s*-\s*([^:：\n]+)[:：]\s*(.+)$", m.group(1) if m else "", re.M)]
-    return out
-
-
-def blog_fill(site):
-    """최근 초안으로 글쓰기 화면을 열어 채운다 (발행은 대표님이 직접)."""
-    try:
-        title, body, tags = blogpost.latest(site)
-        return blogpost.fill(site, title, body, tags, MODE.get("tistory", ""))
-    except (kmong.SafariError, subprocess.TimeoutExpired) as e:
-        return str(e)
-
-
-def blog_fill_route(body):
-    site = "tistory" if body.get("site") == "tistory" else "naver"
-    msg = blog_fill(site)
-    log(f"📝 {msg}")
-    return {"ok": "넣었어요" in msg, "message": msg}
-
-
-BLOG_POST_RE = re.compile(r"블로그.{0,10}(올려|채워|붙여|발행|업로드)|(네이버|티스토리).{0,8}(올려|채워)")
-
-
-def handle_blog_post(command):
-    if not BLOG_POST_RE.search(command):
-        return False
-    sites = ["tistory"] if "티스토리" in command else ["naver"] if "네이버" in command else ["naver", "tistory"]
-    if "tistory" in sites and not MODE.get("tistory"):
-        sites = [x for x in sites if x != "tistory"] or sites
-    speak("블로그 글쓰기 화면을 열어서 초안을 채울게요.", then="thinking")
-    for site in sites:
-        msg = blog_fill(site)
-        log(f"📝 {msg}")
-        speak(msg)
-    return True
-
-
 def schedule_loop():
-    """정해진 시각에 기상 음악, 아침 브리핑, 주간 블로그 초안."""
+    """정해진 시각에 아침 브리핑, 주간 블로그 초안."""
     done = set()
     while True:
         time.sleep(15)
         now, today = time.strftime("%H:%M"), time.strftime("%Y-%m-%d")
         blog_day, _, blog_at = (MODE.get("blog") or "").partition(" ")
-        jobs = [("alarm", MODE.get("alarm"), wake_up), ("briefing", BRIEFING_TIME, briefing),
+        jobs = [("briefing", BRIEFING_TIME, briefing),
                 ("blog", blog_at if WEEKDAYS[time.localtime().tm_wday] == blog_day else "", blog_week),
                 ("mailindex", "03:10" if MODE.get("mail_dirs") else "", lambda: build_mail_index(announce=False))]
         for name, at, job in jobs:
             if at and now == at and (name, today) not in done:
                 done.add((name, today))
                 threading.Thread(target=job, daemon=True).start()
-
-
-_TIME = r"(오전|아침|오후|저녁)?\s*(\d{1,2})\s*시\s*(반|(\d{1,2})\s*분)?"
-ALARM_RE = re.compile(r"(?:알람|기상|깨워).{0,12}?" + _TIME + r"|" + _TIME + r".{0,8}(?:깨워|알람|기상)")
-ALARM_OFF_RE = re.compile(r"(알람|기상\s*음악).{0,6}(꺼|끄|취소|없애|그만)")
-
-
-def handle_alarm(command):
-    """'알람 6시 반으로 바꿔 줘', '알람 꺼 줘' 같은 요청이면 처리하고 True."""
-    if ALARM_OFF_RE.search(command):
-        MODE["alarm"] = ""
-        mode_route({})
-        speak("기상 음악을 껐어요.")
-        return True
-    m = ALARM_RE.search(command)
-    if not m:
-        return False
-    ampm, h, half, mins = m.groups()[:4] if m.group(2) else m.groups()[4:8]
-    hour = int(h) % 24
-    if ampm in ("오후", "저녁") and hour < 12:
-        hour += 12
-    minute = 30 if half == "반" else int(mins or 0)
-    MODE["alarm"] = f"{hour:02d}:{minute:02d}"
-    mode_route({})
-    speak(f"매일 {hour}시{f' {minute}분' if minute else ''}에 지니 걸그룹 노래로 깨워 드릴게요.")
-    return True
 
 
 def load_mode():
@@ -1164,7 +999,7 @@ def handle_command(command, attachments=""):
 
 
 def _handle_command(command, attachments=""):
-    if attachments:  # 첨부가 있으면 단축 명령(음악·알람 등) 대신 바로 Claude 가 파일을 보고 대답
+    if attachments:  # 첨부가 있으면 단축 명령(음악 등) 대신 바로 Claude 가 파일을 보고 대답
         speak("네, 첨부한 파일을 확인할게요.", then="thinking", chat=False)
         ask_and_offer_files(command + attachments)
         return
@@ -1214,7 +1049,7 @@ def _handle_command(command, attachments=""):
     if TEMPLATE_RE.search(command):
         fetch_templates()
         return
-    if handle_alarm(command) or handle_music(command):
+    if handle_music(command):
         return
     speak("네, 잠시만요.", then="thinking", chat=False)
     if "크몽" in command and not KMONG_STATUS_RE.search(command):  # 상담창 질문일 때만 지금 화면을 붙임
@@ -1549,7 +1384,7 @@ def main():
     threading.Thread(target=music_watch, daemon=True).start()
     if IDLE_MIN > 0:
         threading.Thread(target=idle_watch, daemon=True).start()
-    log(f"기상 음악: {MODE['alarm'] or '꺼짐'} / 아침 브리핑: {BRIEFING_TIME or '꺼짐'} / 블로그 초안: {MODE.get('blog') or '꺼짐'}")
+    log(f"아침 브리핑: {BRIEFING_TIME or '꺼짐'} / 블로그 초안: {MODE.get('blog') or '꺼짐'}")
 
     def on_audio(indata, frames, t, status):
         if not muted.is_set() and input_mode() == "voice":
