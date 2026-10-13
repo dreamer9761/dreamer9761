@@ -26,7 +26,7 @@
   }
 
   async function show(name) {
-    for (const id of ['weather', 'news', 'draft', 'tpl', 'blog', 'notices']) $(id).hidden = true;
+    for (const id of ['weather', 'news', 'draft', 'tpl', 'blog', 'notices', 'naver']) $(id).hidden = true;
     $('report').hidden = false;
     document.documentElement.classList.add('has-side');
     try { if (window.innerWidth < 900) window.resizeTo(1120, Math.max(window.outerHeight, 820)); } catch (e) {}

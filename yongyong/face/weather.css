@@ -243,3 +243,11 @@ html.remote .chat-mic { display: block; }
 .dash-week .p { font-weight: 600; font-variant-numeric: tabular-nums; }
 .dash-week .r { color: #ffd75e; font-size: .9em; }
 @media (max-width: 760px) { .dash-stats { grid-template-columns: 1fr; row-gap: 2vh; } .dash-big { flex-wrap: wrap; } }
+
+/* 네이버 메일 연결 */
+.account.naver-link { right: 270px; }
+html.remote .account.naver-link { right: 12px; }
+.naver-steps { margin: 12px 0 4px; padding-left: 20px; font-size: 13px; line-height: 1.7; color: var(--muted); }
+.naver-steps b { color: var(--text); }
+.naver-in { font-weight: 500; font-size: 16px; }
+.naver-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }

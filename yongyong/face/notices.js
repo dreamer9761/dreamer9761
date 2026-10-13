@@ -6,7 +6,7 @@
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-Yongyong': '1' }, body: JSON.stringify(data || {}),
   }).then((r) => r.json());
-  const OTHERS = ['weather', 'news', 'report', 'draft', 'tpl', 'blog'];
+  const OTHERS = ['weather', 'news', 'report', 'draft', 'tpl', 'blog', 'naver'];
 
   function render(items) {
     $('notices-list').innerHTML = items.length ? items.map((n, i) => `

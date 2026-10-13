@@ -6,6 +6,7 @@
 import base64
 import email
 import imaplib
+import os
 import re
 import subprocess
 import sys
@@ -21,6 +22,8 @@ MAX_BYTES = 3_000_000  # 한 통에서 앞부분 3MB 만 (큰 첨부는 잘라�
 
 
 def password(user):
+    if os.environ.get("YONGYONG_NAVER_TEST_PW"):  # 대화창에서 새 비밀번호를 저장하기 전에 먼저 확인할 때만
+        return os.environ["YONGYONG_NAVER_TEST_PW"]
     out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", user, "-w"],
                          capture_output=True, text=True)
     if out.returncode != 0:

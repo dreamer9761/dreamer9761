@@ -22,6 +22,7 @@
 <script src="blogimg.js"></script>
 <script src="blog.js"></script>
 <script src="notices.js"></script>
+<script src="naver.js"></script>
 <style>
   :root {
     --bg-top: #1b2550;
@@ -280,6 +281,7 @@
 </div>
 <button class="account remote-logout" id="remote-logout" hidden>로그아웃</button>
 
+<button class="account naver-link" id="naver-open">네이버 메일 연결</button>
 <button class="account tpl-link" id="tpl-open">자주 쓰는 문구</button>
 <button class="account" id="account">Claude 계정 연결</button>
 
@@ -348,6 +350,23 @@
       <button id="blog-copy-tags" class="ghost">태그 복사</button>
     </div>
     <div class="draft-msg" id="blog-msg"></div>
+  </section>
+  <section class="wx side-panel" id="naver" hidden>
+    <div class="wx-head">
+      <div><div class="wx-place">📬 네이버 메일 연결</div>
+        <div class="wx-updated" id="naver-state"></div></div>
+      <button class="wx-close" id="naver-close" aria-label="닫기">✕</button>
+    </div>
+    <ol class="naver-steps">
+      <li>네이버 → 내정보 → 보안설정 → 2단계 인증 관리 → <b>애플리케이션 비밀번호</b></li>
+      <li>예전 <b>용용이</b> 줄은 삭제하고, <b>직접 입력</b>에 "용용이" → <b>생성하기</b></li>
+      <li>나온 12자리를 복사해서 아래에 붙여 넣기 (네이버 비밀번호 아님)</li>
+    </ol>
+    <input class="blog-title naver-in" id="naver-id" placeholder="네이버 아이디 (@naver.com 앞부분)" autocomplete="username" autocapitalize="off" spellcheck="false">
+    <input class="blog-title naver-in" id="naver-pw" type="password" placeholder="애플리케이션 비밀번호 12자리" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <div class="draft-actions"><button id="naver-save">확인하고 연결</button></div>
+    <div class="draft-msg" id="naver-msg"></div>
+    <p class="naver-note">비밀번호는 맥미니 키체인에만 저장돼요. 틀리면 1시간에 3번까지만 시도해요 (네이버 ID 보호조치 방지).</p>
   </section>
   <section class="wx side-panel" id="tpl" hidden>
     <div class="wx-head">
@@ -496,6 +515,7 @@
       else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);
       else if (msg.panel === 'progress') window.YongProgress.jobs(msg.jobs);
       else if (msg.panel === 'file') window.YongChat.addFile(msg);
+      else if (msg.panel === 'naver') window.YongNaver.show();
       else if (msg.panel === 'dash-stats') window.YongDash.refresh();
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }

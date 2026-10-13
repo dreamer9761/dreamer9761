@@ -439,6 +439,7 @@ def add_mail_folder(command="", remote=False):
 
 NAVER_MAIL = DATA / "naver_mail.json"   # {"id": 네이버 아이디} (비밀번호는 키체인에만, naver_mail_setup.sh 로 설정)
 NAVER_RE = re.compile(r"네이버\s*메일.{0,10}(연동|가져와|동기화|불러와|업데이트|새로\s*고침|확인|색인)")
+NAVER_CONNECT_RE = re.compile(r"네이버.{0,8}(다시\s*연결|재연결|비밀번호|연결\s*칸|새로\s*연결)")
 NAVER_SYNC_SEC = 1800
 NAVER_PAUSED = DATA / "naver_mail_paused"  # 로그인이 거절되면 생김 → 자동 재시도 멈춤 (naver_mail_setup.sh 가 지움)
 _naver_syncing = threading.Lock()
@@ -473,6 +474,8 @@ def sync_naver_mail(announce=True):
         failed = p.returncode != 0
         if p.returncode == 2:  # 로그인 거절: 같은 비밀번호로 계속 시도하면 네이버가 ID 보호조치를 하므로 멈춘다
             NAVER_PAUSED.write_text(time.strftime("%Y-%m-%d %H:%M"))
+            FACE.panel("naver")  # 대화창에 '네이버 메일 다시 연결' 칸을 띄움
+            summary = "네이버 메일에 로그인이 안 돼서 자동 연동을 멈췄어요. 대화창에 뜬 칸에 새 애플리케이션 비밀번호를 넣어 주세요."
         elif not failed:
             NAVER_PAUSED.unlink(missing_ok=True)
         # 30분마다 자동으로 할 때 실패하면, 같은 말을 계속 반복하지 않도록 처음 한 번만 알려 준다
@@ -483,6 +486,44 @@ def sync_naver_mail(announce=True):
     finally:
         FACE.progress("naver")
         _naver_syncing.release()
+
+
+_naver_tries = []  # 대화창에서 비밀번호를 잘못 넣는 일이 반복되면 네이버가 막으므로 1시간에 3번까지만
+
+
+def naver_connect_route(body):
+    """대화창(휴대폰 포함)의 '네이버 메일 연결' 칸: 새 애플리케이션 비밀번호를 먼저 한 번 확인하고, 되면 키체인에 저장한다.
+    용용이는 맥 화면에 로그인된 상태로 돌고 있어서 키체인이 열려 있다 (원격 SSH 와 달리 저장이 실패하지 않음)."""
+    if body.get("check"):
+        user = _json_file(NAVER_MAIL, {}).get("id", "")
+        return {"ok": True, "id": user, "paused": NAVER_PAUSED.exists()}
+    user = str(body.get("id", "")).strip().split("@")[0].lower()
+    pw = re.sub(r"[\s-]", "", str(body.get("password", "")))
+    if not re.fullmatch(r"[a-z0-9._-]{3,30}", user):
+        return {"ok": False, "error": "네이버 아이디를 확인해 주세요 (@naver.com 앞부분)."}
+    if not re.fullmatch(r"[A-Za-z0-9]{8,32}", pw):
+        return {"ok": False, "error": "애플리케이션 비밀번호는 영어 대문자와 숫자 12자리예요. 네이버 비밀번호가 아니에요."}
+    now = time.time()
+    _naver_tries[:] = [t for t in _naver_tries if now - t < 3600]
+    if len(_naver_tries) >= 3:
+        return {"ok": False, "error": "1시간 안에 3번 실패해서 잠시 멈췄어요. 네이버가 ID 보호조치를 하지 않도록 조금 뒤에 다시 해 주세요."}
+    test = subprocess.run([sys.executable, str(HERE / "mailsync.py"), "test", user], capture_output=True, text=True,
+                          env={**os.environ, "YONGYONG_NAVER_TEST_PW": pw}, timeout=90)
+    if test.returncode != 0:
+        _naver_tries.append(now)
+        return {"ok": False, "error": "네이버가 로그인을 거절했어요. 새로 만든 애플리케이션 비밀번호인지, 네이버 메일 환경설정에서 "
+                                      "IMAP 이 '사용함'인지 확인해 주세요."}
+    # 비밀번호를 명령줄에 드러내지 않도록 security 의 입력(stdin)으로 넘긴다
+    save = subprocess.run(["security", "-i"], input=f"add-generic-password -U -s yongyong-naver-mail -a {user} -w {pw}\n",
+                          capture_output=True, text=True, timeout=30)
+    if save.returncode != 0 or "error" in (save.stdout + save.stderr).lower():
+        return {"ok": False, "error": "맥 키체인에 저장하지 못했어요. 맥미니 화면이 잠겨 있지 않은지 확인해 주세요."}
+    NAVER_MAIL.write_text(json.dumps({"id": user}), encoding="utf-8")
+    NAVER_PAUSED.unlink(missing_ok=True)
+    _naver_tries.clear()
+    log("📬 네이버 메일 다시 연결됨 (대화창)")
+    threading.Thread(target=sync_naver_mail, kwargs={"announce": False}, daemon=True).start()
+    return {"ok": True, "message": "연결됐어요! 새 메일을 가져오기 시작했고, 앞으로 30분마다 자동으로 가져와요."}
 
 
 def naver_mail_watch():
@@ -1127,6 +1168,9 @@ def _handle_command(command, attachments=""):
         return
     if FILE_OFFER_RE.search(command):
         return offer_existing_file(command)
+    if NAVER_CONNECT_RE.search(command):
+        FACE.panel("naver")
+        return speak("네이버 메일 연결 칸을 띄웠어요. 새로 만든 애플리케이션 비밀번호를 붙여 넣어 주세요.")
     if NAVER_RE.search(command):
         threading.Thread(target=sync_naver_mail, daemon=True).start()
         return
@@ -1530,6 +1574,7 @@ def main():
     log(f"마이크: {info['name']} ({rate}Hz) / 음성인식: {WHISPER_MODEL} / 작업 폴더: {WORKDIR}")
     if SHOW_FACE:
         FACE.converter = lambda path, fmt: __import__("convert").convert(path, fmt)
+        FACE.routes["/naver/connect"] = naver_connect_route
         FACE.routes["/login/start"] = login_start
         FACE.routes["/login/token"] = login_token
         FACE.routes["/news"] = news_route
