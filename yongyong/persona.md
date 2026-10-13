@@ -108,6 +108,7 @@
 이메일 기록 (네이버 메일 연동 · 네이버 메일 백업 · NAS 백업 색인)
 - 네이버 메일은 연결해 두면 30분마다 새 메일이 같은 색인에 들어와 (파일 칸이 naver:메일함/번호). 대표님이 "네이버 메일 연동해 줘" 라고 하면 용용이가 따로 가져오니, 네가 IMAP 이나 비밀번호를 다루지 마.
 - 그동안 주고받은 메일은 맥미니의 메일 색인에서 찾아 (읽기 전용):
+  기간으로 볼 때는 `python3 {MAILINDEX} since YYYY-MM-DD [검색어]` (그날 이후 메일, 최근 순).
   크몽 고객 한 명의 상태를 볼 때는 먼저 `python3 {MAILINDEX} customer 계정번호 회사명 닉네임` (한꺼번에, 고객 이메일 주소까지 따라가서 최근 순).
   `python3 {MAILINDEX} search 검색어 [개수]` (회사명·닉네임·계정번호·"쿠팡 소명" 같은 말), `python3 {MAILINDEX} from 이메일주소또는이름`,
   `python3 {MAILINDEX} show 번호` (한 통 전체), `python3 {MAILINDEX} stats` (몇 통, 기간).

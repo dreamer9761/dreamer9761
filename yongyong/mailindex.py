@@ -5,6 +5,7 @@
   python3 mailindex.py search 검색어 [개수]       제목·보낸사람·받는사람·본문·첨부 이름에서 찾기 (예: "블루키워즈", "쿠팡 소명")
   python3 mailindex.py from 주소또는이름 [개수]   특정 사람과 주고받은 메일
   python3 mailindex.py customer 계정번호 회사명 닉네임 ...   크몽 고객 한 명의 메일 기록 한꺼번에 (최근 순, 보냄/받음 표시)
+  python3 mailindex.py since 2026-10-12 [검색어]  그날 이후 메일 (최근 순)
   python3 mailindex.py show 번호                  메일 한 통 전체 보기
   python3 mailindex.py stats                     색인 현황"""
 import email
@@ -159,6 +160,15 @@ def search(q, n=20):
     show_rows(rows)
 
 
+def since(day, q="", n=300):
+    """day(YYYY-MM-DD) 이후 메일을 최근 순으로 (검색어가 있으면 그 말이 들어간 것만). 대기 화면의 계정복구 집계용."""
+    like = "%" + q + "%"
+    rows = db().execute("SELECT rowid, date, sender, recipients, subject, substr(body, 1, 200) FROM mail WHERE date >= ? "
+                        "AND (? = '' OR subject LIKE ? OR body LIKE ? OR sender LIKE ?) ORDER BY date DESC LIMIT ?",
+                        (day, q, like, like, like, n)).fetchall()
+    show_rows(rows)
+
+
 def by_person(who, n=30):
     like = "%" + who + "%"
     show_rows(db().execute("SELECT rowid, date, sender, recipients, subject, substr(body, 1, 120) FROM mail "
@@ -236,6 +246,8 @@ if __name__ == "__main__":
         search(" ".join(x for x in a[1:] if not x.isdigit()) or a[1], int(a[-1]) if a[-1].isdigit() and len(a) > 2 else 20)
     elif cmd == "from" and a[1:]:
         by_person(a[1], int(a[2]) if len(a) > 2 else 30)
+    elif cmd == "since" and a[1:]:
+        since(a[1], " ".join(a[2:]))
     elif cmd == "customer" and a[1:]:
         customer(a[1:])
     elif cmd == "show" and a[1:]:

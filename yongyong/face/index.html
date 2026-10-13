@@ -262,6 +262,7 @@
 
 <div class="dash" id="dash">
   <section class="dash-clock"><div id="dash-time"></div><div id="dash-date"></div></section>
+  <section class="dash-card dash-stats"><h2>이번 주 결제 · 계정복구 <small id="dash-stats-updated"></small></h2><div id="dash-stats"></div></section>
   <section class="dash-card"><h2>날씨</h2><div id="dash-wx"></div></section>
   <section class="dash-card dash-km"><h2>크몽 현황 <small id="dash-kmong-updated"></small></h2><div class="report-body" id="dash-kmong"></div></section>
   <div class="dash-hint">마우스를 움직이거나 "용용아" 하고 부르면 돌아가요</div>
@@ -495,6 +496,7 @@
       else if (msg.panel === 'audio') window.YongPhoneMic.play(msg.wav);
       else if (msg.panel === 'progress') window.YongProgress.jobs(msg.jobs);
       else if (msg.panel === 'file') window.YongChat.addFile(msg);
+      else if (msg.panel === 'dash-stats') window.YongDash.refresh();
       else if (msg.mode) window.YongChat.apply(msg.mode);
       else if (msg.panel === 'close') { window.YongWeather.close(); window.YongNews.close(); window.YongReport.close(); }
       else setState(msg);

@@ -32,9 +32,34 @@
     } catch (e) { $('dash-wx').innerHTML = `<p class="dash-muted">날씨를 불러오지 못했어요 (${e.message})</p>`; }
   }
 
+  const won = (v) => v.toLocaleString('ko-KR') + '원';
+  const man = (v) => (v >= 10000 ? (Math.round(v / 1000) / 10).toLocaleString('ko-KR') + '만' : v ? v.toLocaleString('ko-KR') : '-');
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function stats(st) {
+    if (!st) return;
+    $('dash-stats-updated').textContent = st.updated ? st.updated + ' 기준' : '집계 전 (크몽 확인 때 채워져요)';
+    const max = Math.max(1, ...st.days.map((d) => d.pay));
+    const todayIso = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    $('dash-stats').innerHTML = `
+      <div class="dash-big">
+        <div><span>오늘 결제</span><b>${won(st.today_pay)}</b></div>
+        <div><span>이번 주 결제</span><b>${won(st.week_pay)}</b></div>
+        <div><span>오늘 계정복구</span><b>${st.today_recovered}개</b><em>이번 주 ${st.week_recovered}개</em></div>
+      </div>
+      <div class="dash-week">${st.days.map((d) => {
+        const day = new Date(d.date + 'T00:00:00');
+        return `<div class="${d.date === todayIso ? 'today' : ''}${d.future ? ' future' : ''}" title="${esc(d.accounts.join(', '))}">
+          <div class="l">${DAYS[day.getDay()]} <small>${day.getDate()}일</small></div>
+          <div class="bar"><i style="height:${Math.round((d.pay / max) * 100)}%"></i></div>
+          <div class="p">${d.future ? '' : man(d.pay)}</div>
+          <div class="r">${d.future ? '' : '🔓 ' + d.recovered}</div></div>`;
+      }).join('')}</div>`;
+  }
+
   async function kmong() {
     try {
       const r = await post('/dashboard');
+      stats(r.stats);
       weather(r.region);
       if (!r.report) { $('dash-kmong').innerHTML = '<p class="dash-muted">아직 크몽 현황 보고서가 없어요. "용용아, 크몽 현황 알려 줘" 라고 해 보세요.</p>'; return; }
       $('dash-kmong-updated').textContent = r.updated;
@@ -50,7 +75,7 @@
     document.documentElement.classList.add('dash-on');
     post('/window', { full: true }).catch(() => {});
     tick(); kmong();
-    timers = [setInterval(tick, 1000), setInterval(kmong, 15 * 60 * 1000)];
+    timers = [setInterval(tick, 1000), setInterval(kmong, 5 * 60 * 1000)];
   }
 
   function hide() {
@@ -73,5 +98,5 @@
   }, { passive: true });
   ['mousedown', 'keydown', 'touchstart', 'wheel'].forEach((ev) => window.addEventListener(ev, activity, { passive: true }));
   // 언제 띄울지는 용용이(파이썬)가 맥 전체의 키보드·마우스 사용 시간을 보고 정한다 (다른 앱에서 작업 중이면 안 뜸)
-  window.YongDash = { activity, show, hide };
+  window.YongDash = { activity, show, hide, refresh: () => { if (on) kmong(); } };
 })();

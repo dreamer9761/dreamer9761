@@ -116,7 +116,7 @@ html.music-on .music-note { display: block; }
 .dash { display: none; }
 html.dash-on .dash {
   display: grid; position: fixed; inset: 0; z-index: 50; padding: 4vh 4vw; gap: 2.5vh 3vw;
-  grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr 1fr; grid-template-rows: auto auto 1fr auto;
   background: radial-gradient(circle at 30% 20%, #1b2550, #090d1c 75%); overflow: hidden;
 }
 .dash-clock { grid-column: 1 / -1; text-align: center; }
@@ -223,3 +223,23 @@ html.remote .chat-mic { display: block; }
 .chat-log .msg.file .file-btns a { padding: 5px 11px; border-radius: 9px; background: var(--scale); color: #0d1226;
   font-size: 13px; font-weight: 600; text-decoration: none; }
 .chat-log .msg.file .file-btns a:active { opacity: .7; }
+
+/* 대기 화면: 이번 주 결제 · 계정복구 */
+.dash-stats { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr; column-gap: 3vw; align-items: center; }
+.dash-stats h2 { grid-column: 1 / -1; }
+#dash-stats { display: contents; }
+.dash-big { display: flex; gap: 2.5vw; }
+.dash-big > div { display: flex; flex-direction: column; }
+.dash-big span { color: var(--muted); font-size: clamp(12px, 1.1vw, 17px); }
+.dash-big b { font-size: clamp(24px, 2.8vw, 46px); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash-big em { font-style: normal; color: var(--muted); font-size: clamp(11px, 1vw, 15px); }
+.dash-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: .6vw; text-align: center; font-size: clamp(11px, 1vw, 16px); }
+.dash-week > div { background: rgba(255,255,255,.05); border-radius: 12px; padding: .8vh 0; }
+.dash-week > div.today { outline: 2px solid var(--glow); }
+.dash-week > div.future { opacity: .35; }
+.dash-week .l { color: var(--muted); }
+.dash-week .bar { height: 6vh; margin: .6vh auto; width: 38%; display: flex; align-items: flex-end; background: rgba(255,255,255,.06); border-radius: 6px; overflow: hidden; }
+.dash-week .bar i { display: block; width: 100%; background: var(--scale); border-radius: 6px 6px 0 0; }
+.dash-week .p { font-weight: 600; font-variant-numeric: tabular-nums; }
+.dash-week .r { color: #ffd75e; font-size: .9em; }
+@media (max-width: 760px) { .dash-stats { grid-template-columns: 1fr; row-gap: 2vh; } .dash-big { flex-wrap: wrap; } }

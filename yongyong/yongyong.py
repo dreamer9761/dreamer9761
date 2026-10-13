@@ -1185,6 +1185,86 @@ def refresh_kmong_report():
         _refreshing.release()
 
 
+# ── 대기 화면 숫자: 일별·주간 결제액, 일별 계정복구 수 (크몽 확인할 때 10분마다, 바뀐 게 있을 때만 Claude 가 집계) ──
+DASH_STATS = DATA / "dash_stats.json"
+_stats_seen = {"fp": None, "mails": None, "at": 0.0}
+
+
+def _week_days():
+    import datetime
+    today = datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())
+    return today, [monday + datetime.timedelta(days=i) for i in range(7)]
+
+
+def update_dash_stats(page):
+    """크몽 메시지 화면(과 주문관리)·이번 주 메일을 읽어 결제 주문과 계정복구를 모아 둔다. 같은 주문·계정은 한 번만 센다."""
+    fp = kmong.fingerprint(page) if page else None
+    try:
+        import sqlite3
+        mails = sqlite3.connect(DATA / "mail.db").execute("SELECT count(*) FROM mail").fetchone()[0]
+    except Exception:
+        mails = None
+    stale = time.time() - _stats_seen["at"] > 3600  # 바뀐 게 없어도 1시간에 한 번은 다시 확인
+    if not stale and fp == _stats_seen["fp"] and mails == _stats_seen["mails"]:
+        return
+    today, week = _week_days()
+    answer = Brain(workdir=DATA, remember=False).ask(
+        f"대기 화면 숫자를 위해 이번 주({week[0]}~{today}) 결제와 계정복구를 모아 줘. 화면은 읽기만 하고 아무것도 누르거나 보내지 마.\n"
+        f"1) 결제: 아래 크몽 메시지 화면과, 기억 파일의 '크몽 주문관리 주소'(없으면 `python3 {HERE / 'kmong.py'} links` 로 찾아 적어)를 "
+        f"`python3 {HERE / 'kmong.py'} read 주소` 로 읽어서 이번 주에 결제된 주문을 하나씩 찾아. 취소·환불된 건 빼.\n"
+        f"2) 계정복구: `python3 {HERE / 'mailindex.py'} since {week[0]}` 로 이번 주 메일을 보고, 쿠팡·스마트스토어 등 플랫폼에서 온 "
+        "이용제한 해제·계정 정상화·복구 완료 메일과 고객이 '복구됐어요/풀렸어요' 라고 한 메일, 그리고 크몽 메시지에서 고객이 복구됐다고 알린 것을 찾아. "
+        "자세히 봐야 하면 `show 번호`. 정지 안내·소명 요청처럼 아직 복구 안 된 건 빼.\n"
+        'JSON 한 줄로만 대답해 (다른 말 금지): {"orders": [{"date": "YYYY-MM-DD", "nickname": "주문자", "amount": 원단위숫자, "id": "주문번호(있으면)"}], '
+        '"recovered": [{"date": "YYYY-MM-DD", "account": "A계정번호 또는 회사명", "platform": "쿠팡 등", "source": "메일 또는 크몽"}]}. '
+        "확실하지 않은 건 넣지 마. 없으면 빈 배열.\n\n=== 크몽 메시지 화면 ===\n" + (page or "(못 읽음)")[:15000])
+    try:
+        got = json.loads(answer[answer.index("{"): answer.rindex("}") + 1])
+    except ValueError:
+        log(f"(대기 화면 숫자 집계 실패) {answer[:80]}")
+        return
+    stats = _json_file(DASH_STATS, {"orders": {}, "recovered": {}})
+    for o in got.get("orders") or []:
+        try:
+            amount = int(re.sub(r"[^\d]", "", str(o.get("amount", ""))) or 0)
+        except ValueError:
+            continue
+        if amount and re.fullmatch(r"\d{4}-\d\d-\d\d", str(o.get("date", ""))):
+            key = str(o.get("id") or "") or f"{o.get('nickname')}|{o['date']}|{amount}"
+            stats["orders"].setdefault(key, {"date": o["date"], "nickname": str(o.get("nickname", "")), "amount": amount})
+    for r in got.get("recovered") or []:
+        acct = re.sub(r"\s+", "", str(r.get("account", "")))
+        if acct and re.fullmatch(r"\d{4}-\d\d-\d\d", str(r.get("date", ""))):
+            key = f"{acct}|{r.get('platform', '')}"  # 메일과 크몽에 둘 다 나와도 한 번만 (처음 본 날짜로)
+            stats["recovered"].setdefault(key, {"date": r["date"], "account": str(r.get("account", "")),
+                                                "platform": str(r.get("platform", "")), "source": str(r.get("source", ""))})
+    cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - 60 * 86400))  # 60일 지난 건 정리
+    for kind in ("orders", "recovered"):
+        stats[kind] = {k: v for k, v in stats[kind].items() if v["date"] >= cutoff}
+    stats["updated"] = time.strftime("%H:%M")
+    DASH_STATS.write_text(json.dumps(stats, ensure_ascii=False, indent=1), encoding="utf-8")
+    _stats_seen.update(fp=fp, mails=mails, at=time.time())
+    FACE.panel("dash-stats")  # 대기 화면이 떠 있으면 바로 새로 고침
+    log(f"📊 대기 화면 숫자 업데이트: 주문 {len(got.get('orders') or [])}건, 복구 {len(got.get('recovered') or [])}건 확인")
+
+
+def dash_stats():
+    stats = _json_file(DASH_STATS, {"orders": {}, "recovered": {}})
+    today, week = _week_days()
+    days = []
+    for d in week:
+        day = d.isoformat()
+        rec = [r for r in stats.get("recovered", {}).values() if r["date"] == day]
+        days.append({"date": day, "future": d > today,
+                     "pay": sum(o["amount"] for o in stats.get("orders", {}).values() if o["date"] == day),
+                     "recovered": len(rec), "accounts": [f"{r['account']} {r['platform']}".strip() for r in rec]})
+    t = next(x for x in days if x["date"] == today.isoformat())
+    return {"days": days, "today_pay": t["pay"], "week_pay": sum(x["pay"] for x in days),
+            "today_recovered": t["recovered"], "week_recovered": sum(x["recovered"] for x in days),
+            "updated": stats.get("updated", "")}
+
+
 def dashboard_route(_body):
     path = REPORTS["크몽"][1]
     report = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -1192,7 +1272,7 @@ def dashboard_route(_body):
     if (age is None or age > 2 * 3600) and 9 <= time.localtime().tm_hour < 21:
         threading.Thread(target=refresh_kmong_report, daemon=True).start()
     updated = time.strftime("%H:%M 기준", time.localtime(path.stat().st_mtime)) if path.exists() else ""
-    return {"ok": True, "region": default_region(), "report": report, "updated": updated}
+    return {"ok": True, "region": default_region(), "report": report, "updated": updated, "stats": dash_stats()}
 
 
 # 캐릭터 창(사파리)을 화면 가득 키우거나 원래 크기로
@@ -1396,6 +1476,11 @@ def kmong_watch():
         except Exception as e:  # 사파리가 닫혀 있거나 권한이 없을 때는 조용히 다시 시도
             log(f"(크몽 읽기 실패) {e}")
             continue
+        if page and 8 <= time.localtime().tm_hour < 24:
+            try:
+                update_dash_stats(page)
+            except Exception as e:
+                log(f"(대기 화면 숫자 집계 실패) {e}")
         if not page:
             if not re.search(r"크몽 메시지\s*주소", MEMO.read_text(encoding="utf-8") if MEMO.exists() else ""):
                 log("크몽 메시지 주소를 찾는 중")
