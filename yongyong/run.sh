@@ -36,5 +36,25 @@ if [[ -d "$APP" && ! -f .login-item-app ]]; then
   fi
 fi
 
-# 4) 용용이가 켜져 있는 동안 맥과 모니터가 잠들지 않게 (-d: 화면, -i: 시스템, -s: 전원 연결 시)
-exec caffeinate -d -i -s .venv/bin/python yongyong.py "$@"
+# 4) 밖에서 접속하도록 설정해 뒀으면, 켤 때마다 Tailscale 연결을 다시 열어 둔다 (맥을 다시 켰을 때 대비)
+if [[ -f data/remote.json ]]; then
+  for TS in tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
+    if command -v "$TS" >/dev/null 2>&1 || [[ -x "$TS" ]]; then
+      if "$TS" status 2>&1 | grep -qi "logged out\|not logged in\|stopped"; then
+        echo "⚠️  맥미니의 Tailscale 이 꺼져 있어서 밖에서 접속이 안 돼요. 메뉴 막대의 Tailscale 아이콘 → Connect / Log in"
+        open -a Tailscale 2>/dev/null || true
+      else
+        "$TS" serve --bg 8765 >/dev/null 2>&1 || echo "⚠️  Tailscale 연결을 열지 못했어요. ./remote_setup.sh 를 실행해 주세요."
+      fi
+      break
+    fi
+  done
+fi
+
+# 5) 용용이가 켜져 있는 동안 맥과 모니터가 잠들지 않게 (-d: 화면, -i: 시스템, -s: 전원 연결 시)
+#    오류로 꺼지면 30초 뒤 (최신 버전을 받아) 저절로 다시 켠다. Control + C 로 끄면 그대로 끝.
+trap 'echo; echo "용용이를 껐어요."; exit 0' INT TERM
+caffeinate -d -i -s .venv/bin/python yongyong.py "$@" && exit 0
+echo "⚠️  $(date '+%H:%M') 용용이가 오류로 꺼졌어요. 30초 뒤에 다시 켭니다 (그만하려면 Control + C)"
+sleep 30
+exec "$0" "$@"
