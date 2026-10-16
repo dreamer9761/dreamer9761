@@ -17,6 +17,12 @@ if git -C .. fetch -q origin "$BRANCH" 2>/dev/null \
   fi
 fi
 
+# 이미 켜져 있으면 두 번 켜지 않음 (맥이 켜질 때 로그인 항목과 바탕화면 아이콘이 겹쳐도 안전)
+if pgrep -f "python yongyong.py" >/dev/null 2>&1; then
+  echo "용용이가 이미 켜져 있어요. (다시 켜려면 켜져 있는 용용이 터미널 창에서 Control + C 후 실행)"
+  exit 0
+fi
+
 [[ -f .env ]] && source .env
 [[ -x .venv/bin/python ]] || { echo "먼저 ./install.sh 를 실행하세요."; exit 1; }
 # 새로 추가된 부품이 없으면 설치 (git 으로 직접 받아도 빠지지 않게)

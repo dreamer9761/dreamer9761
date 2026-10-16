@@ -53,6 +53,14 @@ if pgrep -x caffeinate >/dev/null; then ok "용용이가 켜져 있는 동안 �
 SLEEP=$(pmset -g 2>/dev/null | awk '/^ sleep/ {print $2}')
 [[ -n "$SLEEP" && "$SLEEP" != 0 ]] && warn "맥 설정상 ${SLEEP}분 뒤 잠자기 → 시스템 설정 → 에너지 → '자동으로 잠자기 방지' 를 켜 두면 더 안전해요"
 
+echo "6) 맥이 다시 켜지면 용용이가 저절로 켜지나요?"
+if osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | grep -q "용용이"; then
+  ok "로그인 항목에 용용이 있음"
+else warn "로그인 항목에 용용이가 없어요 → ./autostart.sh"; fi
+if [[ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null)" != "$(id -un)" ]]; then
+  warn "자동 로그인이 꺼져 있어서, 맥을 다시 켜면 비밀번호를 입력해야 용용이가 켜져요 (자세히: ./autostart.sh)"
+fi
+
 echo
 if [[ $PROBLEMS == 0 ]]; then
   echo "👍 맥미니 쪽은 모두 정상이에요. 그래도 밖에서 안 되면 접속하는 기기(휴대폰·노트북)의 Tailscale 이 켜져 있는지 확인해 주세요."
