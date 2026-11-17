@@ -29,8 +29,11 @@ MAX_LEN = 4000  # 텔레그램 한 메시지 최대 4096자
 
 
 def token():
-    out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", "bot", "-w"],
-                         capture_output=True, text=True)
+    try:
+        out = subprocess.run(["security", "find-generic-password", "-s", SERVICE, "-a", "bot", "-w"],
+                             capture_output=True, text=True)
+    except OSError:  # 맥이 아니면 키체인이 없음
+        return ""
     return out.stdout.strip() if out.returncode == 0 else ""
 
 
