@@ -21,6 +21,7 @@ import face
 import blogpost
 import genie
 import kmong
+import leave
 import youtube
 import news
 import mlx_whisper
@@ -598,7 +599,7 @@ def system_prompt():
     ev = evidence_dir()
     persona = (PERSONA.replace("{EVIDENCE}", ev or "(아직 없음 — 대표님께 '증빙 폴더 설정해 줘' 라고 해 달라고 안내)")
                .replace("{WEATHER}", str(HERE / "weather.py")).replace("{NEWS}", str(HERE / "news.py"))
-               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD)).replace("{MAILINDEX}", str(HERE / "mailindex.py")).replace("{PY}", sys.executable)
+               .replace("{KMONG}", str(HERE / "kmong.py")).replace("{KMONG_REPORT}", str(REPORTS["크몽"][1])).replace("{SALES}", str(DATA / "sales.md")).replace("{GENIE}", str(HERE / "genie.py")).replace("{HUB}", str(HERE / "hub.py")).replace("{DOCREAD}", str(HERE / "docread.py")).replace("{EVIDENCE_INDEX}", str(EVIDENCE_INDEX_MD)).replace("{MAILINDEX}", str(HERE / "mailindex.py")).replace("{PY}", sys.executable).replace("{LEAVE}", str(HERE / "leave.py"))
                .replace("{DRAFT}", str(DRAFT)).replace("{BLOG_DIR}", str(BLOG_DIR)).replace("{TEMPLATES}", str(DATA / "kmong_templates.md"))
                .replace("{TODAY}", time.strftime("%Y-%m-%d (%a)")))
     return f"{persona}\n\n기억 (파일: {MEMO})\n{memo}\n"
@@ -1106,6 +1107,79 @@ def ask_and_offer_files(prompt):
         FACE.offer_file(f)
 
 
+# ── 직원 연차: "난 김하진이야, 내 연차 몇 개야?", "오늘 연차 1개 썼어", "반차 썼어" (계산은 leave.py 가 정확히) ──
+LEAVE_RE = re.compile(r"연차|반차|월차|휴가.{0,8}(썼|쓸|쓰|몇|남|냈|신청|기록|취소|사용)")
+LEAVE_ALL_RE = re.compile(r"(직원|전체|모두|다들|우리).{0,8}(연차|휴가)|(연차|휴가).{0,6}(현황|전체|목록)")
+LEAVE_CANCEL_RE = re.compile(r"(연차|반차|휴가).{0,10}(취소|잘못|빼|지워)")
+_WHO = {"name": "", "at": 0.0}  # 마지막으로 "난 ○○야" 라고 한 직원 (30분 동안 기억)
+_KO_NUM = {"한": 1, "하루": 1, "두": 2, "이틀": 2, "세": 3, "사흘": 3, "네": 4, "나흘": 4, "다섯": 5}
+
+
+def _leave_days(command):
+    """'연차 2개 썼어' → 2, '반차' → 0.5, 숫자가 없으면 1. 쓴 게 아니면 None."""
+    if not re.search(r"썼|쓸게|쓰려|쓰고|사용했|냈|낼게|신청|다녀왔|쉬었|쉴게", command):
+        return None
+    if re.search(r"반차", command) and not re.search(r"\d+(\.\d+)?\s*(개|일)", command):
+        return 0.5
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:개|일|번)?\s*(?:연차|휴가|를|을)?\s*(?:썼|사용|냈|쓸|쓰|신청|쉬)", command) \
+        or re.search(r"(?:연차|휴가)\s*(\d+(?:\.\d+)?)", command)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"(" + "|".join(_KO_NUM) + r")\s*(?:개|일|번)?", command)
+    return float(_KO_NUM[m.group(1)]) if m else 1.0
+
+
+def _leave_date(command):
+    import datetime as _dt
+    today = _dt.date.today()
+    if "어제" in command:
+        return today - _dt.timedelta(days=1)
+    if "내일" in command:
+        return today + _dt.timedelta(days=1)
+    m = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", command)
+    if m:
+        try:
+            return _dt.date(today.year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            pass
+    return today
+
+
+def handle_leave(command):
+    """연차 질문이면 대답하고 True. 직원 이름은 이번 말 → 30분 안에 말한 이름 순서로 찾는다."""
+    staff = leave.names()
+    named = next((n for n in staff if n in command or n[1:] in command and len(n) == 3 and re.search(n[1:] + r"(이|씨|님|야|예요|입니다)", command)), "")
+    intro = re.search(r"(난|나는|저는|전|저|제가|내가).{0,12}?(이야|야|이에요|예요|입니다|이고|인데|이요|에요)", command)
+    if named and intro:
+        _WHO.update(name=named, at=time.time())
+    if not LEAVE_RE.search(command):
+        if named and intro:  # "난 김하진이야" 만 말했을 때
+            speak(f"네, {named} {leave.load()['employees'][named]['title']}님. 연차가 궁금하시면 '내 연차 몇 개야' 라고 물어보세요.")
+            return True
+        return False
+    if LEAVE_ALL_RE.search(command) and not named:
+        speak("\n\n".join(leave.describe(n) for n in staff))
+        return True
+    who = named or (_WHO["name"] if time.time() - _WHO["at"] < 1800 else "")
+    if not who:
+        speak("누구의 연차인지 알려 주세요. 예: '난 김하진이야, 내 연차 몇 개야?' (등록된 직원: " + ", ".join(staff) + ")")
+        return True
+    if LEAVE_CANCEL_RE.search(command):
+        last = leave.cancel(who)
+        speak((f"{who}님의 {last['date']} 연차 {leave.fmt(last['days'])}개 기록을 취소했어요.\n" if last else "취소할 기록이 없어요.\n")
+              + leave.describe(who))
+        return True
+    days = _leave_days(command)
+    if days:
+        when = _leave_date(command)
+        leave.use(who, days, when, command[:60])
+        log(f"🗓️ 연차 기록: {who} {when} {leave.fmt(days)}개")
+        speak(f"{who}님 {when.month}월 {when.day}일 연차 {leave.fmt(days)}개 사용으로 기록했어요.\n" + leave.describe(who))
+        return True
+    speak(leave.describe(who))
+    return True
+
+
 FILE_OFFER_RE = re.compile(r"(파일|엑셀|워드|pdf|문서).{0,15}(대화창|채팅|다운로드\s*버튼|받게|띄워)", re.I)
 
 
@@ -1165,6 +1239,8 @@ def _handle_command(command, attachments=""):
     if re.search(r"메일.{0,6}(발송\s*)?알림", command):
         FACE.panel("notices")
         speak("메일 발송 알림을 화면에 띄웠어요.")
+        return
+    if handle_leave(command):
         return
     if FILE_OFFER_RE.search(command):
         return offer_existing_file(command)
