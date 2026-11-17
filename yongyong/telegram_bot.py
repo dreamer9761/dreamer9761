@@ -6,6 +6,7 @@
   python3 telegram_bot.py code      등록 코드 다시 보기 (새로 만들기)
   python3 telegram_bot.py users     등록된 사람 보기
   python3 telegram_bot.py call 비서야 비서   단체방에서 부르는 말 바꾸기 (기존 봇과 겹칠 때)
+  python3 telegram_bot.py check     안 될 때 점검
   python3 telegram_bot.py remove 번호   등록 취소"""
 import getpass
 import json
@@ -300,6 +301,33 @@ if __name__ == "__main__":
         print(f"개인 등록: 등록할 사람이 봇과의 대화에서  /start {code}")
         print(f"단체방 등록: 봇을 방에 초대한 뒤 방에서  /start@{bot_username() or '봇아이디'} {code}")
         print("(코드는 한 번만 쓸 수 있어요)")
+    elif a[:1] == ["check"]:
+        ok = lambda t: print("  ✅ " + t)  # noqa: E731
+        bad = lambda t: print("  ❌ " + t)  # noqa: E731
+        tok = token()
+        if not tok:
+            bad("봇 토큰이 없어요 → ./telegram.sh setup")
+            sys.exit()
+        try:
+            me = api("getMe", tok, timeout=20)
+            ok(f"봇 연결됨: @{me['username']}")
+        except Exception as e:
+            bad(f"토큰이 안 맞아요 ({e}) → BotFather 에서 /revoke 로 새 토큰을 받아 ./telegram.sh setup")
+            sys.exit()
+        if me.get("can_read_all_group_messages"):
+            ok("단톡방의 일반 메시지를 읽을 수 있음 (privacy 꺼짐)")
+        else:
+            bad("봇이 단톡방 일반 메시지를 못 읽어요 → BotFather /setprivacy → 봇 선택 → Disable, "
+                "그다음 방에서 봇을 내보냈다가 다시 초대 (그전까지는 @멘션·답장만 돼요)")
+        hook = api("getWebhookInfo", tok, timeout=20).get("url")
+        bad("다른 프로그램(웹훅)이 이 봇 메시지를 가져가고 있어요 → ./telegram.sh setup") if hook else ok("웹훅 없음")
+        c = conf()
+        groups = c.get("groups", {})
+        ok("등록된 단체방: " + ", ".join(g.get("title", gid) for gid, g in groups.items())) if groups else \
+            bad("등록된 단체방이 없어요 → ./telegram.sh code 로 받은 '/start@봇아이디 숫자' 를 방에 보내기")
+        print("  부르는 말: " + ", ".join(c.get("call_words") or DEFAULT_CALL) + " (또는 @" + me["username"] + ")")
+        running = subprocess.run(["pgrep", "-f", "python yongyong.py"], capture_output=True).returncode == 0
+        ok("용용이 켜져 있음 (텔레그램 대답은 용용이가 켜져 있어야 해요)") if running else bad("용용이가 꺼져 있어요 → ./run.sh")
     elif a[:1] == ["call"]:
         c = conf()
         if a[1:]:
