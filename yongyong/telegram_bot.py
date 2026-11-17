@@ -134,6 +134,15 @@ def poll(on_message, log=print):
             continue
         try:
             updates = api_poll(tok, offset)
+        except urllib.error.HTTPError as e:
+            if e.code == 409:  # 다른 프로그램이 같은 봇으로 메시지를 받고 있음
+                log("⚠️ 텔레그램: 다른 프로그램(웹훅이나 다른 봇 프로그램)이 같은 봇을 쓰고 있어서 메시지를 못 받아요. "
+                    "./telegram.sh setup 을 다시 실행하거나 그 프로그램을 꺼 주세요. (5분 뒤 다시)")
+                time.sleep(300)
+            else:
+                log(f"(텔레그램 연결 실패 {e.code}, 1분 뒤 다시)")
+                time.sleep(60)
+            continue
         except (urllib.error.URLError, TimeoutError, RuntimeError, OSError) as e:
             log(f"(텔레그램 연결 실패, 1분 뒤 다시) {e}")
             time.sleep(60)
@@ -178,8 +187,9 @@ def remember_staff(uid, name):
 
 
 def setup():
-    print("1) 텔레그램에서 @BotFather 를 찾아 대화 → /newbot → 봇 이름(예: 용용이) → 아이디(예: yongyong_robo_bot)")
-    print("2) BotFather 가 준 토큰(숫자:영문 긴 글자)을 복사해서 아래에 붙여 넣으세요 (화면에 안 보이는 게 정상).")
+    print("1) 이미 만든 봇: 텔레그램 @BotFather → /mybots → 내 봇 선택 → API Token → 토큰 복사")
+    print("   (새로 만들 때: @BotFather → /newbot → 봇 이름 → 아이디(…bot 으로 끝남))")
+    print("2) 토큰(숫자:영문 긴 글자)을 아래에 붙여 넣으세요 (화면에 안 보이는 게 정상).")
     tok = getpass.getpass("   토큰: ").strip()
     if not TOKEN_RE.fullmatch(tok):
         sys.exit("토큰 모양이 아니에요. BotFather 가 준 '123456789:ABC...' 전체를 붙여 넣어 주세요.")
@@ -187,6 +197,14 @@ def setup():
         me = api("getMe", tok, timeout=20)
     except Exception as e:
         sys.exit(f"텔레그램이 이 토큰을 받지 않아요: {e}")
+    hook = api("getWebhookInfo", tok, timeout=20).get("url")
+    if hook:  # 다른 프로그램(웹훅)이 이 봇의 메시지를 받고 있으면 용용이가 받을 수 없음
+        print(f"\n⚠️  이 봇은 지금 다른 프로그램(웹훅)으로 메시지가 가고 있어요: {hook.split('?')[0][:60]}")
+        print("   용용이가 대답하려면 이 연결을 끊어야 해요. 그 프로그램은 이 봇 메시지를 더 받지 못하게 돼요.")
+        if input("   끊고 용용이로 바꿀까요? (y/N) ").strip().lower() != "y":
+            sys.exit("바꾸지 않았어요. 용용이 전용 봇을 새로 만들어 쓰는 것도 방법이에요 (@BotFather → /newbot).")
+        api("deleteWebhook", tok, timeout=20)
+        print("   ✅ 웹훅을 끊었어요.")
     # 토큰을 명령줄에 드러내지 않도록 security 의 입력으로 넘긴다
     out = subprocess.run(["security", "-i"], input=f"add-generic-password -U -s {SERVICE} -a bot -w {tok}\n",
                          capture_output=True, text=True)
