@@ -276,7 +276,10 @@ def speak(text, then="idle", chat=True):
         FACE.chat("yongyong", text)
     tg = getattr(_local, "telegram", None)
     if tg:  # 텔레그램으로 물어봤으면 텔레그램으로 대답 ("잠시만요" 같은 짧은 말은 '입력 중…' 표시로)
-        telegram_bot.send(tg, text) if chat else telegram_bot.typing(tg)
+        if chat:
+            telegram_bot.send(tg, text, getattr(_local, "telegram_reply", None))
+        else:
+            telegram_bot.typing(tg)
     if getattr(_local, "voice_reply", False):  # 휴대폰에서 말로 물어봤으면 휴대폰에서 소리로 대답
         send_voice_to_phone(text)
     if not MODE["speak"] or getattr(_local, "quiet", False):  # 밖(휴대폰·사무실)에서 온 요청이면 집에서 소리 내지 않음
@@ -551,6 +554,8 @@ def telegram_message(msg, user):
         telegram_bot.send(chat, "음성 메시지는 아직 못 들어요. 글자로 보내 주세요 🙏")
         return
     if not text and not ids:
+        if user.get("group"):  # 단체방에서 '용용아' 만 불렀을 때
+            telegram_bot.send(chat, "네! 무엇을 도와드릴까요? 🐉", user.get("reply_to"))
         return
     text = text or "첨부한 파일을 확인해 줘."
     if text.startswith("/start"):
@@ -559,13 +564,14 @@ def telegram_message(msg, user):
 
     def run():
         _local.quiet, _local.voice_reply = True, False  # 집 스피커로 소리 내지 않음
-        _local.telegram, _local.telegram_uid = chat, user["id"]
+        _local.telegram, _local.telegram_uid, _local.telegram_reply = chat, user["id"], user.get("reply_to")
         if user.get("staff"):  # 예전에 '난 ○○야' 라고 한 직원이면 그 사람으로
             _WHO.update(name=user["staff"], at=time.time())
         telegram_bot.typing(chat)
         with BUSY, deaf():
-            log(f"✈️ 텔레그램 {user['name']}: {text}" + (" 📎" if ids else ""))
-            FACE.chat("me", f"[텔레그램 {user['name']}] {text}")
+            where = f"텔레그램 {user['group']} 방" if user.get("group") else "텔레그램"
+            log(f"✈️ {where} {user['name']}: {text}" + (" 📎" if ids else ""))
+            FACE.chat("me", f"[{where} {user['name']}] {text}")
             handle_command(text, attach_note(ids))
     threading.Thread(target=run, daemon=True).start()
 

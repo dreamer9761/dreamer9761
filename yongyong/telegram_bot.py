@@ -76,11 +76,15 @@ def api_poll(tok, offset):
     return res["result"]
 
 
-def send(chat_id, text):
+def send(chat_id, text, reply_to=None):
+    """보내기 (단체방에서는 물어본 메시지에 답장으로 달아 누구 질문의 대답인지 보이게)."""
     text = str(text).strip() or "…"
     for i in range(0, len(text), MAX_LEN):
+        params = {"chat_id": chat_id, "text": text[i:i + MAX_LEN]}
+        if reply_to and i == 0:
+            params["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
         try:
-            api("sendMessage", chat_id=chat_id, text=text[i:i + MAX_LEN])
+            api("sendMessage", **params)
         except Exception as e:
             print(f"(텔레그램 보내기 실패) {e}", flush=True)
 
@@ -149,29 +153,92 @@ def poll(on_message, log=print):
             continue
         for u in updates:
             offset = u["update_id"] + 1
-            msg = u.get("message") or {}
-            sender = msg.get("from") or {}
-            uid, chat = str(sender.get("id", "")), msg.get("chat", {}).get("id")
-            if not uid or not chat or msg.get("chat", {}).get("type") != "private":
-                continue  # 단체방은 받지 않음 (개인 대화만)
-            c = conf()
-            text = (msg.get("text") or msg.get("caption") or "").strip()
-            if uid not in c["allowed"]:
-                m = re.fullmatch(r"/start\s+(\d{6})", text)
-                if m and c.get("code") and m.group(1) == c["code"]:
-                    name = " ".join(filter(None, [sender.get("last_name"), sender.get("first_name")])) or sender.get("username", "")
-                    c["allowed"][uid] = {"name": name, "staff": ""}
-                    c["code"] = ""  # 코드는 한 번만 쓸 수 있음
+            try:
+                _handle_update(u, on_message, log, warned)
+            except Exception as e:  # 메시지 하나 때문에 텔레그램 전체가 멈추지 않게
+                log(f"(텔레그램 메시지 처리 오류) {e}")
+
+
+_me = {}
+
+
+def bot_username():
+    if not _me.get("username"):
+        try:
+            _me.update(api("getMe", timeout=20))
+        except Exception:
+            return ""
+    return _me.get("username", "")
+
+
+def _name(sender):
+    return " ".join(filter(None, [sender.get("last_name"), sender.get("first_name")])) or sender.get("username", "")
+
+
+def _handle_update(u, on_message, log, warned):
+    msg = u.get("message") or {}
+    sender, chat_info = msg.get("from") or {}, msg.get("chat") or {}
+    uid, chat, kind = str(sender.get("id", "")), chat_info.get("id"), chat_info.get("type")
+    if not uid or not chat or sender.get("is_bot"):
+        return
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    c = conf()
+    start = re.fullmatch(r"/start(?:@\w+)?\s+(\d{6})", text)
+    code_ok = bool(start and c.get("code") and start.group(1) == c["code"])
+
+    if kind in ("group", "supergroup"):
+        gid = str(chat)
+        if gid not in c.setdefault("groups", {}):
+            if code_ok:  # 단체방 등록: 방에서 '/start@봇아이디 코드'
+                with _edit:
+                    c = conf()
+                    c.setdefault("groups", {})[gid] = {"title": chat_info.get("title", "")}
+                    c["code"] = ""
                     save_conf(c)
-                    log(f"📱 텔레그램 등록: {name} ({uid})")
-                    send(chat, f"반가워요, {name}님! 용용이예요 🐉 이제 여기서 물어보시면 대답할게요.\n"
-                               "직원이시면 먼저 '난 ○○○이야' 라고 알려 주세요 (연차 확인용).")
-                elif uid not in warned:
-                    warned.add(uid)
-                    log(f"📱 텔레그램: 등록 안 된 사람의 메시지는 무시했어요 ({uid})")
-                    send(chat, "등록되지 않은 사용자예요. 대표님께 등록 코드를 받아서 '/start 코드' 로 보내 주세요.")
-                continue
-            on_message(msg, c["allowed"][uid] | {"id": uid})
+                log(f"📱 텔레그램 단체방 등록: {chat_info.get('title')} ({gid})")
+                send(chat, "안녕하세요, 용용이예요 🐉 이 방에서는 '용용아 ...' 로 시작하거나 저를 @멘션하거나 "
+                           "제 메시지에 답장하시면 대답할게요.")
+            elif gid not in warned:
+                warned.add(gid)
+                log(f"📱 텔레그램: 등록 안 된 단체방은 무시했어요 ({chat_info.get('title')})")
+            return
+        # 등록된 단체방: 불렀을 때만 대답 (용용아 / @봇 멘션 / 용용이 메시지에 답장)
+        me = bot_username()
+        mention = f"@{me}" if me else None
+        replied = ((msg.get("reply_to_message") or {}).get("from") or {}).get("username") == me and me
+        called = re.match(r"\s*(용용아|용용이[야,]?|용용)\b", text) or (mention and mention.lower() in text.lower())
+        if not (called or replied):
+            return
+        text = re.sub(r"^\s*(용용아|용용이야|용용이|용용)[,\s!]*", "", text)
+        if mention:
+            text = re.sub(re.escape(mention), "", text, flags=re.I).strip()
+        msg = dict(msg, text=text, caption=None)
+        user = {"id": uid, "name": _name(sender), "staff": c.get("staff", {}).get(uid, ""),
+                "reply_to": msg.get("message_id"), "group": chat_info.get("title", "")}
+        on_message(msg, user)
+        return
+
+    if kind != "private":
+        return
+    if uid not in c["allowed"]:
+        if code_ok:
+            name = _name(sender)
+            with _edit:
+                c = conf()
+                c["allowed"][uid] = {"name": name, "staff": ""}
+                c["code"] = ""  # 코드는 한 번만 쓸 수 있음
+                save_conf(c)
+            log(f"📱 텔레그램 등록: {name} ({uid})")
+            send(chat, f"반가워요, {name}님! 용용이예요 🐉 이제 여기서 물어보시면 대답할게요.\n"
+                       "직원이시면 먼저 '난 ○○○이야' 라고 알려 주세요 (연차 확인용).")
+        elif uid not in warned:
+            warned.add(uid)
+            log(f"📱 텔레그램: 등록 안 된 사람의 메시지는 무시했어요 ({uid})")
+            send(chat, "등록되지 않은 사용자예요. 대표님께 등록 코드를 받아서 '/start 코드' 로 보내 주세요.")
+        return
+    user = c["allowed"][uid] | {"id": uid}
+    user["staff"] = user.get("staff") or c.get("staff", {}).get(uid, "")
+    on_message(msg, user)
 
 
 _edit = threading.Lock()  # 읽고-고치고-저장하는 동안 다른 쪽이 끼어들지 않게
@@ -181,8 +248,10 @@ def remember_staff(uid, name):
     """'난 김하진이야' 라고 한 텔레그램 사용자는 그 직원으로 기억 (다음부터 '내 연차' 가 바로 됨)."""
     with _edit:
         c = conf()
-        if uid in c["allowed"] and c["allowed"][uid].get("staff") != name:
-            c["allowed"][uid]["staff"] = name
+        if c.setdefault("staff", {}).get(uid) != name:  # 개인 대화·단체방 모두 같은 사람으로 기억
+            c["staff"][uid] = name
+            if uid in c["allowed"]:
+                c["allowed"][uid]["staff"] = name
             save_conf(c)
 
 
@@ -223,13 +292,19 @@ if __name__ == "__main__":
     if a[:1] == ["setup"]:
         setup()
     elif a[:1] == ["code"]:
-        print(f"이 코드를 등록할 사람이 봇에게 보내면 돼요:  /start {new_code()}   (한 번만 쓸 수 있어요)")
+        code = new_code()
+        print(f"개인 등록: 등록할 사람이 봇과의 대화에서  /start {code}")
+        print(f"단체방 등록: 봇을 방에 초대한 뒤 방에서  /start@{bot_username() or '봇아이디'} {code}")
+        print("(코드는 한 번만 쓸 수 있어요)")
     elif a[:1] == ["users"]:
         for uid, u in conf()["allowed"].items():
             print(f"{uid}  {u['name']}  {('(직원: ' + u['staff'] + ')') if u.get('staff') else ''}")
+        for gid, g in conf().get("groups", {}).items():
+            print(f"{gid}  [단체방] {g.get('title', '')}")
     elif a[:1] == ["remove"] and len(a) == 2:
         c = conf()
-        print("등록을 취소했어요." if c["allowed"].pop(a[1], None) else "그 번호가 없어요.")
+        gone = c["allowed"].pop(a[1], None) or c.setdefault("groups", {}).pop(a[1], None)
+        print("등록을 취소했어요." if gone else "그 번호가 없어요.")
         save_conf(c)
     else:
         print(__doc__)
