@@ -774,7 +774,34 @@ def show_panels(answer):
             FACE.panel("draft")
         elif kind == "블로그":
             FACE.panel("blog")
+        tg = getattr(_local, "telegram", None)
+        if tg:  # 텔레그램에는 화면 패널이 없으니 그 내용을 글·파일로 보낸다
+            telegram_panel(tg, kind)
     return PANEL_TAG.sub("", answer).strip()
+
+
+def _plain(md):
+    """텔레그램용: 마크다운 표시를 읽기 쉬운 글로."""
+    md = re.sub(r"^#{1,6}\s*(.+)$", r"■ \1", md, flags=re.M)
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", md).strip()
+
+
+def telegram_panel(chat, kind):
+    reply_to = getattr(_local, "telegram_reply", None)
+    if kind == "크몽":
+        path = REPORTS["크몽"][1]
+        if path.exists():
+            when = time.strftime("%m월 %d일 %H:%M 기준", time.localtime(path.stat().st_mtime))
+            telegram_bot.send(chat, f"📊 크몽 현황판 ({when})\n\n" + _plain(path.read_text(encoding="utf-8")), reply_to)
+        else:
+            telegram_bot.send(chat, "크몽 현황판 파일이 아직 없어요. 잠시 뒤 다시 물어봐 주세요.", reply_to)
+    elif kind == "답변" and DRAFT.exists():
+        info, _, reply = DRAFT.read_text(encoding="utf-8").partition("## 답변 초안")
+        telegram_bot.send(chat, "✍️ 답변 초안 (크몽에 붙여 넣기 전에 확인해 주세요)\n\n" + _plain(reply or info), reply_to)
+    elif kind == "블로그":
+        files = sorted(BLOG_DIR.glob("*.md")) if BLOG_DIR.exists() else []
+        if files:
+            telegram_bot.send_file(chat, files[-1], "📝 이번 주 블로그 초안")
 
 
 def briefing():
