@@ -5,6 +5,7 @@
   python3 telegram_bot.py setup     봇 토큰 넣기 (처음 한 번) → 등록 코드 안내
   python3 telegram_bot.py code      등록 코드 다시 보기 (새로 만들기)
   python3 telegram_bot.py users     등록된 사람 보기
+  python3 telegram_bot.py call 비서야 비서   단체방에서 부르는 말 바꾸기 (기존 봇과 겹칠 때)
   python3 telegram_bot.py remove 번호   등록 취소"""
 import getpass
 import json
@@ -159,6 +160,7 @@ def poll(on_message, log=print):
                 log(f"(텔레그램 메시지 처리 오류) {e}")
 
 
+DEFAULT_CALL = ["용용아", "용용이야", "용용이", "용용"]  # 단체방에서 부르는 말 (./telegram.sh call 로 바꿀 수 있음)
 _me = {}
 
 
@@ -196,7 +198,7 @@ def _handle_update(u, on_message, log, warned):
                     c["code"] = ""
                     save_conf(c)
                 log(f"📱 텔레그램 단체방 등록: {chat_info.get('title')} ({gid})")
-                send(chat, "안녕하세요, 용용이예요 🐉 이 방에서는 '용용아 ...' 로 시작하거나 저를 @멘션하거나 "
+                send(chat, f"안녕하세요, 용용이예요 🐉 이 방에서는 '{(c.get('call_words') or DEFAULT_CALL)[0]} ...' 로 시작하거나 저를 @멘션하거나 "
                            "제 메시지에 답장하시면 대답할게요.")
             elif gid not in warned:
                 warned.add(gid)
@@ -206,10 +208,12 @@ def _handle_update(u, on_message, log, warned):
         me = bot_username()
         mention = f"@{me}" if me else None
         replied = ((msg.get("reply_to_message") or {}).get("from") or {}).get("username") == me and me
-        called = re.match(r"\s*(용용아|용용이[야,]?|용용)\b", text) or (mention and mention.lower() in text.lower())
+        words = sorted(c.get("call_words") or DEFAULT_CALL, key=len, reverse=True)  # 긴 말부터 ("용용이야" 가 "용용" 보다 먼저)
+        call_re = r"^\s*(" + "|".join(map(re.escape, words)) + r")(?=$|[\s,!?.~])[,\s!?.~]*"
+        called = re.match(call_re, text) or (mention and mention.lower() in text.lower())
         if not (called or replied):
             return
-        text = re.sub(r"^\s*(용용아|용용이야|용용이|용용)[,\s!]*", "", text)
+        text = re.sub(call_re, "", text)
         if mention:
             text = re.sub(re.escape(mention), "", text, flags=re.I).strip()
         msg = dict(msg, text=text, caption=None)
@@ -296,6 +300,15 @@ if __name__ == "__main__":
         print(f"개인 등록: 등록할 사람이 봇과의 대화에서  /start {code}")
         print(f"단체방 등록: 봇을 방에 초대한 뒤 방에서  /start@{bot_username() or '봇아이디'} {code}")
         print("(코드는 한 번만 쓸 수 있어요)")
+    elif a[:1] == ["call"]:
+        c = conf()
+        if a[1:]:
+            c["call_words"] = a[1:]
+            save_conf(c)
+            print("단체방에서 이렇게 부르면 대답해요: " + ", ".join(a[1:]) + "  (@멘션·답장은 언제나 돼요)")
+        else:
+            print("지금 부르는 말: " + ", ".join(c.get("call_words") or DEFAULT_CALL)
+                  + "\n바꾸기 예: ./telegram.sh call 비서야 비서")
     elif a[:1] == ["users"]:
         for uid, u in conf()["allowed"].items():
             print(f"{uid}  {u['name']}  {('(직원: ' + u['staff'] + ')') if u.get('staff') else ''}")
