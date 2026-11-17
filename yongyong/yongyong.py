@@ -22,6 +22,7 @@ import blogpost
 import genie
 import kmong
 import leave
+import telegram_bot
 import youtube
 import news
 import mlx_whisper
@@ -273,6 +274,9 @@ def speak(text, then="idle", chat=True):
         then = "idle"
     if chat:
         FACE.chat("yongyong", text)
+    tg = getattr(_local, "telegram", None)
+    if tg:  # 텔레그램으로 물어봤으면 텔레그램으로 대답 ("잠시만요" 같은 짧은 말은 '입력 중…' 표시로)
+        telegram_bot.send(tg, text) if chat else telegram_bot.typing(tg)
     if getattr(_local, "voice_reply", False):  # 휴대폰에서 말로 물어봤으면 휴대폰에서 소리로 대답
         send_voice_to_phone(text)
     if not MODE["speak"] or getattr(_local, "quiet", False):  # 밖(휴대폰·사무실)에서 온 요청이면 집에서 소리 내지 않음
@@ -525,6 +529,45 @@ def naver_connect_route(body):
     log("📬 네이버 메일 다시 연결됨 (대화창)")
     threading.Thread(target=sync_naver_mail, kwargs={"announce": False}, daemon=True).start()
     return {"ok": True, "message": "연결됐어요! 새 메일을 가져오기 시작했고, 앞으로 30분마다 자동으로 가져와요."}
+
+
+def telegram_message(msg, user):
+    """텔레그램 메시지 하나 처리: 글자는 그대로, 사진·파일은 첨부로 받아 용용이가 대답 (집에서는 소리 내지 않음)."""
+    chat = msg["chat"]["id"]
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    ids = []
+    media = msg.get("document") or (msg.get("photo") or [None])[-1]  # 사진은 가장 큰 크기
+    if media:
+        try:
+            name, data = telegram_bot.download(media["file_id"])
+            name = (msg.get("document") or {}).get("file_name") or name
+            r = upload_route({"name": name, "data": base64.b64encode(data).decode()})
+            ids = [r["id"]] if r.get("ok") else []
+            if not r.get("ok"):
+                telegram_bot.send(chat, r.get("error", "파일을 받지 못했어요."))
+        except Exception as e:
+            telegram_bot.send(chat, f"파일을 받지 못했어요: {e}")
+    if msg.get("voice") or msg.get("audio"):
+        telegram_bot.send(chat, "음성 메시지는 아직 못 들어요. 글자로 보내 주세요 🙏")
+        return
+    if not text and not ids:
+        return
+    text = text or "첨부한 파일을 확인해 줘."
+    if text.startswith("/start"):
+        telegram_bot.send(chat, "이미 등록돼 있어요. 무엇이든 물어보세요!")
+        return
+
+    def run():
+        _local.quiet, _local.voice_reply = True, False  # 집 스피커로 소리 내지 않음
+        _local.telegram, _local.telegram_uid = chat, user["id"]
+        if user.get("staff"):  # 예전에 '난 ○○야' 라고 한 직원이면 그 사람으로
+            _WHO.update(name=user["staff"], at=time.time())
+        telegram_bot.typing(chat)
+        with BUSY, deaf():
+            log(f"✈️ 텔레그램 {user['name']}: {text}" + (" 📎" if ids else ""))
+            FACE.chat("me", f"[텔레그램 {user['name']}] {text}")
+            handle_command(text, attach_note(ids))
+    threading.Thread(target=run, daemon=True).start()
 
 
 def naver_mail_watch():
@@ -1090,6 +1133,14 @@ def fetch_templates():
 MODE_RE = re.compile(r"(텍스트|글자|채팅|음성|목소리)\s*(모드|로\s*(할게|하자|바꿔|대화))")
 
 
+def offer_file(path):
+    """만든 파일을 대화창 다운로드 버튼으로, 텔레그램에서 물어봤으면 텔레그램 파일로도 보낸다."""
+    FACE.offer_file(path)
+    tg = getattr(_local, "telegram", None)
+    if tg:
+        telegram_bot.send_file(tg, path, "용용이가 만든 파일이에요")
+
+
 DOWNLOADS = Path.home() / "Downloads"
 OFFER_EXT = {".xlsx", ".csv", ".docx", ".pdf", ".md", ".txt", ".pptx", ".hwp", ".zip", ".png", ".jpg"}
 
@@ -1104,7 +1155,7 @@ def ask_and_offer_files(prompt):
     except OSError:
         return
     for f in sorted(new, key=lambda f: f.stat().st_mtime)[:5]:
-        FACE.offer_file(f)
+        offer_file(f)
 
 
 # ── 직원 연차: "난 김하진이야, 내 연차 몇 개야?", "오늘 연차 1개 썼어", "반차 썼어" (계산은 leave.py 가 정확히) ──
@@ -1152,6 +1203,8 @@ def handle_leave(command):
     intro = re.search(r"(난|나는|저는|전|저|제가|내가).{0,12}?(이야|야|이에요|예요|입니다|이고|인데|이요|에요)", command)
     if named and intro:
         _WHO.update(name=named, at=time.time())
+        if getattr(_local, "telegram_uid", None):
+            telegram_bot.remember_staff(_local.telegram_uid, named)
     if not LEAVE_RE.search(command):
         if named and intro:  # "난 김하진이야" 만 말했을 때
             speak(f"네, {named} {leave.load()['employees'][named]['title']}님. 연차가 궁금하시면 '내 연차 몇 개야' 라고 물어보세요.")
@@ -1200,7 +1253,7 @@ def offer_existing_file(command):
     if not picked:
         return speak("다운로드 폴더에 보낼 파일이 없어요.")
     for f in picked:
-        FACE.offer_file(f)
+        offer_file(f)
     how = ("엑셀, 워드, PDF 중에 골라서 받으세요." if picked[0].suffix.lower() in (".xlsx", ".csv", ".docx", ".md", ".txt")
            else "버튼을 누르면 받아져요.")
     speak(f"{picked[0].name} 를 대화창에 올렸어요. {how}")
@@ -1691,6 +1744,9 @@ def main():
         log(f"크몽 새 문의 확인: {KMONG_POLL_SEC // 60}분마다")
     threading.Thread(target=schedule_loop, daemon=True).start()
     threading.Thread(target=naver_mail_watch, daemon=True).start()
+    if telegram_bot.token():
+        threading.Thread(target=telegram_bot.poll, args=(telegram_message, log), daemon=True).start()
+        log("텔레그램: 대답 켜짐 (등록한 사람만)")
     threading.Thread(target=music_watch, daemon=True).start()
     if IDLE_MIN > 0:
         threading.Thread(target=idle_watch, daemon=True).start()
