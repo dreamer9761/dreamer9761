@@ -1200,16 +1200,20 @@ _KO_NUM = {"한": 1, "하루": 1, "두": 2, "이틀": 2, "세": 3, "사흘": 3, 
 
 
 def _leave_days(command):
-    """'연차 2개 썼어' → 2, '반차' → 0.5, 숫자가 없으면 1. 쓴 게 아니면 None."""
-    if not re.search(r"썼|쓸게|쓰려|쓰고|사용했|냈|낼게|신청|다녀왔|쉬었|쉴게", command):
+    """'연차 2개 썼어' → 2, '오후 연차 쓴대'·'반차' → 0.5, 숫자가 없으면 1. 쓴다는 말이 아니면(질문 등) None."""
+    use = re.search(r"썼|쓴|쓸|써|쓰겠|쓰려|쓰고|사용|냈|낼|신청|다녀|쉬|휴무|반영|기록|넣어", command)
+    question = re.search(r"몇|남은|남았|얼마|현황|알려|\?", command)
+    if not use and not (re.search(r"반차|(오전|오후)\s*(연차|휴가)", command) and not question):
         return None
-    if re.search(r"반차", command) and not re.search(r"\d+(\.\d+)?\s*(개|일)", command):
-        return 0.5
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:개|일|번)?\s*(?:연차|휴가|를|을)?\s*(?:썼|사용|냈|쓸|쓰|신청|쉬)", command) \
-        or re.search(r"(?:연차|휴가)\s*(\d+(?:\.\d+)?)", command)
+    if use and question and not re.search(r"반영|기록|넣어|썼|쓴대|쓴다|쓸게|써요", command):
+        return None  # '연차 몇 개 쓸 수 있어?' 같은 질문
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:개|일)", command)
     if m:
         return float(m.group(1))
-    m = re.search(r"(" + "|".join(_KO_NUM) + r")\s*(?:개|일|번)?", command)
+    if re.search(r"반차|(오전|오후)\s*(에\s*)?(연차|휴가|반차|쉬)", command):
+        return 0.5
+    m = re.search(r"(" + "|".join(sorted(_KO_NUM, key=len, reverse=True)) + r")\s*(?:개|일|번)", command) \
+        or re.search(r"(이틀|사흘|나흘)", command)
     return float(_KO_NUM[m.group(1)]) if m else 1.0
 
 
@@ -1233,6 +1237,14 @@ def handle_leave(command):
     """연차 질문이면 대답하고 True. 직원 이름은 이번 말 → 30분 안에 말한 이름 순서로 찾는다."""
     staff = leave.names()
     named = next((n for n in staff if n in command or n[1:] in command and len(n) == 3 and re.search(n[1:] + r"(이|씨|님|야|예요|입니다)", command)), "")
+    if not named:  # 한 글자 오타 ('임헤빈' → 임혜빈): 성은 같고 나머지 두 글자 중 하나만 다를 때
+        for n in staff:
+            for w in re.findall(r"[가-힣]{%d}" % len(n), command):
+                if len(n) == 3 and w[0] == n[0] and sum(a != b for a, b in zip(w, n)) == 1:
+                    named = n
+                    break
+            if named:
+                break
     intro = re.search(r"(난|나는|저는|전|저|제가|내가).{0,12}?(이야|야|이에요|예요|입니다|이고|인데|이요|에요)", command)
     if named and intro:
         _WHO.update(name=named, at=time.time())
