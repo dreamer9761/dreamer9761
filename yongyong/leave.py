@@ -102,8 +102,8 @@ def describe(name, today=None):
         when = ", ".join(f"{d.month}월 {d.day}일" for d, _ in s["upcoming"])
         lines.append(f"올해 안에 {when}에 {fmt(more)}개가 더 생겨서, 올해 연차는 모두 {fmt(s['granted_year'])}개예요.")
     if s["left_year"] > 0:
-        lines.append(f"12월 31일까지 {fmt(s['left_year'])}개를 다 안 쓰면, 하루 통상임금 {s['daily_wage']:,}원 × {fmt(s['left_year'])}개 = "
-                     f"{s['payout']:,}원을 회사가 연차수당으로 지급해요. (월급 {s['salary']:,}원 ÷ 209시간 × 8시간 기준)")
+        # 월급·하루 통상임금은 말하지 않음 (단톡방에서 서로 월급을 알 수 있으므로) — 지급액만
+        lines.append(f"12월 31일까지 {fmt(s['left_year'])}개를 다 안 쓰면, 회사가 연차수당 {s['payout']:,}원을 지급해요.")
     else:
         lines.append("올해 연차를 다 써서 연말에 지급할 연차수당은 없어요." if s["left_year"] == 0
                      else f"생길 연차보다 {fmt(-s['left_year'])}개를 더 썼어요 (미리 당겨 쓴 연차).")
